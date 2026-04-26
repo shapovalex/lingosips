@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lingosips — UX Design Directions</title>
+<style>
+  :root {
+    --zinc-950: #09090b;
+    --zinc-900: #18181b;
+    --zinc-800: #27272a;
+    --zinc-700: #3f3f46;
+    --zinc-600: #52525b;
+    --zinc-500: #71717a;
+    --zinc-400: #a1a1aa;
+    --zinc-300: #d4d4d8;
+    --zinc-200: #e4e4e7;
+    --zinc-100: #f4f4f5;
+    --zinc-50:  #fafafa;
+    --indigo-600: #4f46e5;
+    --indigo-500: #6366f1;
+    --indigo-400: #818cf8;
+    --indigo-100: #e0e7ff;
+    --emerald-500: #10b981;
+    --emerald-400: #34d399;
+    --amber-500: #f59e0b;
+    --amber-400: #fbbf24;
+    --red-400: #f87171;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: #0a0a0f;
+    color: var(--zinc-50);
+    min-height: 100vh;
+  }
+
+  /* NAV */
+  .nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(9,9,11,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--zinc-800);
+    padding: 0 32px;
+    height: 52px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .nav-title { font-size: 14px; font-weight: 600; color: var(--zinc-300); margin-right: 16px; }
+  .nav-btn {
+    padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 500;
+    background: var(--zinc-800); border: 1px solid var(--zinc-700); color: var(--zinc-300);
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  }
+  .nav-btn:hover { background: var(--zinc-700); color: var(--zinc-50); }
+  .nav-btn.active { background: var(--indigo-600); border-color: var(--indigo-500); color: #fff; }
+
+  /* SECTIONS */
+  .section { display: none; padding-top: 52px; }
+  .section.active { display: block; }
+
+  /* DIRECTION LABELS */
+  .dir-label {
+    position: fixed; bottom: 20px; right: 20px; z-index: 200;
+    background: var(--zinc-900); border: 1px solid var(--zinc-700);
+    border-radius: 8px; padding: 12px 16px; font-size: 12px; color: var(--zinc-400);
+    max-width: 260px; line-height: 1.5;
+  }
+  .dir-label strong { color: var(--zinc-200); display: block; margin-bottom: 4px; font-size: 13px; }
+
+  /* ===================== DIRECTION 1: LINEAR ===================== */
+  .d1 { background: var(--zinc-950); min-height: 100vh; display: flex; }
+
+  .d1-sidebar {
+    width: 220px; min-height: 100vh; background: var(--zinc-900);
+    border-right: 1px solid var(--zinc-800); padding: 24px 0; flex-shrink: 0;
+    display: flex; flex-direction: column;
+  }
+  .d1-logo { padding: 0 20px 24px; font-size: 16px; font-weight: 700; color: var(--zinc-50); letter-spacing: -0.3px; }
+  .d1-logo span { color: var(--indigo-400); }
+  .d1-nav-item {
+    padding: 8px 20px; font-size: 13px; color: var(--zinc-400);
+    cursor: pointer; display: flex; align-items: center; gap: 10px;
+    border-radius: 0; transition: all 0.1s;
+  }
+  .d1-nav-item:hover { color: var(--zinc-200); background: var(--zinc-800); }
+  .d1-nav-item.active { color: var(--zinc-50); background: var(--zinc-800); }
+  .d1-nav-item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--zinc-600); }
+  .d1-nav-item.active .dot { background: var(--indigo-400); }
+  .d1-deck-label { padding: 20px 20px 8px; font-size: 11px; font-weight: 600; color: var(--zinc-600); letter-spacing: 0.08em; text-transform: uppercase; }
+  .d1-deck { padding: 6px 20px; font-size: 13px; color: var(--zinc-500); cursor: pointer; display: flex; justify-content: space-between; }
+  .d1-deck:hover { color: var(--zinc-300); }
+  .d1-deck .count { font-size: 11px; color: var(--zinc-600); }
+
+  .d1-main { flex: 1; padding: 32px 40px; overflow-y: auto; }
+  .d1-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; }
+  .d1-heading { font-size: 20px; font-weight: 600; color: var(--zinc-50); }
+  .d1-subheading { font-size: 13px; color: var(--zinc-500); margin-top: 4px; }
+  .d1-queue-pill {
+    background: var(--indigo-600); color: #fff; padding: 8px 16px;
+    border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .d1-queue-pill .num { font-size: 18px; font-weight: 700; }
+
+  .d1-create-area {
+    background: var(--zinc-900); border: 1px solid var(--zinc-800);
+    border-radius: 10px; padding: 20px; margin-bottom: 24px;
+  }
+  .d1-input-row { display: flex; gap: 10px; align-items: center; }
+  .d1-input {
+    flex: 1; background: var(--zinc-800); border: 1px solid var(--zinc-700);
+    border-radius: 7px; padding: 11px 14px; font-size: 15px; color: var(--zinc-50);
+    outline: none;
+  }
+  .d1-input::placeholder { color: var(--zinc-600); }
+  .d1-input:focus { border-color: var(--indigo-500); box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
+  .d1-btn {
+    background: var(--indigo-600); color: #fff; border: none; border-radius: 7px;
+    padding: 11px 18px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
+  }
+  .d1-btn:hover { background: var(--indigo-500); }
+
+  .d1-card-preview {
+    background: var(--zinc-800); border-radius: 8px; padding: 16px; margin-top: 16px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  }
+  .d1-field { }
+  .d1-field-label { font-size: 11px; color: var(--zinc-500); margin-bottom: 4px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; }
+  .d1-field-value { font-size: 14px; color: var(--zinc-200); }
+  .d1-field-value.lg { font-size: 18px; font-weight: 600; color: var(--zinc-50); }
+  .d1-field-value.muted { color: var(--zinc-500); font-style: italic; font-size: 13px; }
+  .d1-audio-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--zinc-700); border: none; border-radius: 5px;
+    padding: 5px 10px; font-size: 12px; color: var(--zinc-300); cursor: pointer; margin-top: 4px;
+  }
+
+  .d1-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; }
+  .d1-stat {
+    background: var(--zinc-900); border: 1px solid var(--zinc-800); border-radius: 8px;
+    padding: 16px; text-align: center;
+  }
+  .d1-stat-num { font-size: 24px; font-weight: 700; color: var(--zinc-50); }
+  .d1-stat-label { font-size: 12px; color: var(--zinc-500); margin-top: 2px; }
+
+  /* ===================== DIRECTION 2: DASHBOARD HERO ===================== */
+  .d2 { background: var(--zinc-950); min-height: 100vh; display: flex; }
+
+  .d2-sidebar {
+    width: 64px; min-height: 100vh; background: var(--zinc-900);
+    border-right: 1px solid var(--zinc-800);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 16px 0; gap: 4px; flex-shrink: 0;
+  }
+  .d2-icon {
+    width: 40px; height: 40px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; cursor: pointer; color: var(--zinc-500);
+    transition: all 0.15s;
+  }
+  .d2-icon:hover { background: var(--zinc-800); color: var(--zinc-200); }
+  .d2-icon.active { background: var(--indigo-600); color: #fff; }
+  .d2-icon-logo { font-size: 20px; font-weight: 800; color: var(--indigo-400); margin-bottom: 12px; }
+
+  .d2-main { flex: 1; display: grid; grid-template-columns: 1fr 360px; gap: 0; }
+  .d2-center { padding: 40px 40px 40px 32px; border-right: 1px solid var(--zinc-800); }
+  .d2-right { padding: 40px 24px; background: var(--zinc-900); }
+
+  .d2-welcome { font-size: 22px; font-weight: 600; color: var(--zinc-50); margin-bottom: 4px; }
+  .d2-sub { font-size: 14px; color: var(--zinc-500); margin-bottom: 32px; }
+
+  .d2-create-card {
+    background: var(--zinc-900); border: 1px solid var(--zinc-800); border-radius: 12px;
+    padding: 24px; margin-bottom: 20px;
+  }
+  .d2-create-title { font-size: 13px; font-weight: 600; color: var(--zinc-400); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; }
+  .d2-big-input {
+    width: 100%; background: var(--zinc-800); border: 1px solid var(--zinc-700);
+    border-radius: 8px; padding: 14px 16px; font-size: 18px; color: var(--zinc-50);
+    outline: none; font-weight: 500;
+  }
+  .d2-big-input::placeholder { color: var(--zinc-600); font-weight: 400; }
+  .d2-big-input:focus { border-color: var(--indigo-500); }
+  .d2-lang-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--zinc-500); }
+  .d2-lang-tag {
+    background: var(--zinc-800); border: 1px solid var(--zinc-700); border-radius: 4px;
+    padding: 3px 8px; font-size: 12px; color: var(--zinc-300);
+  }
+  .d2-arrow { color: var(--zinc-600); }
+
+  .d2-result {
+    background: var(--zinc-800); border-radius: 8px; padding: 16px; margin-top: 14px;
+  }
+  .d2-result-word { font-size: 26px; font-weight: 700; color: var(--zinc-50); margin-bottom: 6px; }
+  .d2-result-trans { font-size: 16px; color: var(--indigo-400); margin-bottom: 10px; }
+  .d2-result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .d2-result-field { font-size: 12px; }
+  .d2-result-field .lbl { color: var(--zinc-500); }
+  .d2-result-field .val { color: var(--zinc-200); margin-top: 1px; }
+  .d2-result-example { margin-top: 10px; font-size: 13px; color: var(--zinc-400); font-style: italic; border-top: 1px solid var(--zinc-700); padding-top: 10px; }
+  .d2-save-row { display: flex; gap: 8px; margin-top: 12px; }
+  .d2-save-btn { background: var(--indigo-600); color: #fff; border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 500; cursor: pointer; }
+  .d2-skip-btn { background: transparent; color: var(--zinc-500); border: 1px solid var(--zinc-700); border-radius: 6px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
+
+  .d2-queue-section { }
+  .d2-queue-title { font-size: 13px; font-weight: 600; color: var(--zinc-400); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 16px; }
+  .d2-queue-hero {
+    background: var(--indigo-600); border-radius: 10px; padding: 20px;
+    margin-bottom: 16px; cursor: pointer;
+  }
+  .d2-queue-num { font-size: 36px; font-weight: 800; color: #fff; }
+  .d2-queue-label { font-size: 13px; color: rgba(255,255,255,0.7); margin-top: 2px; }
+  .d2-queue-cta { margin-top: 12px; background: rgba(255,255,255,0.15); color: #fff; border: none; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 500; cursor: pointer; }
+  .d2-mode-row { display: flex; gap: 6px; margin-bottom: 20px; }
+  .d2-mode-btn {
+    flex: 1; background: var(--zinc-800); border: 1px solid var(--zinc-700);
+    border-radius: 6px; padding: 8px; font-size: 12px; color: var(--zinc-400);
+    text-align: center; cursor: pointer;
+  }
+  .d2-mode-btn.sel { border-color: var(--indigo-500); color: var(--indigo-400); background: rgba(99,102,241,0.08); }
+  .d2-recent-label { font-size: 11px; color: var(--zinc-600); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .d2-recent-card {
+    background: var(--zinc-800); border-radius: 6px; padding: 10px 12px;
+    margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .d2-recent-word { font-size: 13px; color: var(--zinc-200); }
+  .d2-recent-trans { font-size: 12px; color: var(--zinc-500); }
+  .d2-fsrs-tag { font-size: 10px; padding: 2px 6px; border-radius: 3px; }
+  .d2-fsrs-tag.due { background: rgba(245,158,11,0.15); color: var(--amber-400); }
+  .d2-fsrs-tag.ok { background: rgba(16,185,129,0.15); color: var(--emerald-400); }
+
+  /* ===================== DIRECTION 3: SPLIT PANEL ===================== */
+  .d3 { background: var(--zinc-950); min-height: 100vh; display: flex; flex-direction: column; }
+  .d3-topbar {
+    height: 52px; background: var(--zinc-900); border-bottom: 1px solid var(--zinc-800);
+    display: flex; align-items: center; padding: 0 24px; gap: 24px; flex-shrink: 0;
+  }
+  .d3-logo { font-size: 15px; font-weight: 700; color: var(--zinc-50); letter-spacing: -0.3px; }
+  .d3-logo span { color: var(--indigo-400); }
+  .d3-topnav { display: flex; gap: 4px; }
+  .d3-topnav-item { padding: 5px 12px; border-radius: 5px; font-size: 13px; color: var(--zinc-500); cursor: pointer; }
+  .d3-topnav-item.active { background: var(--zinc-800); color: var(--zinc-200); }
+  .d3-status { margin-left: auto; font-size: 11px; color: var(--zinc-600); display: flex; align-items: center; gap: 6px; }
+  .d3-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--emerald-500); }
+
+  .d3-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; }
+  .d3-left { padding: 32px; border-right: 1px solid var(--zinc-800); }
+  .d3-right { padding: 32px; background: rgba(99,102,241,0.03); }
+
+  .d3-panel-title { font-size: 12px; font-weight: 600; color: var(--zinc-600); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 20px; }
+
+  .d3-input-big {
+    width: 100%; background: transparent; border: none; border-bottom: 2px solid var(--zinc-700);
+    padding: 12px 0; font-size: 22px; color: var(--zinc-50); outline: none; font-weight: 500;
+  }
+  .d3-input-big::placeholder { color: var(--zinc-700); }
+  .d3-input-big:focus { border-bottom-color: var(--indigo-500); }
+  .d3-input-hint { font-size: 12px; color: var(--zinc-600); margin-top: 8px; }
+
+  .d3-fields { margin-top: 28px; display: flex; flex-direction: column; gap: 16px; }
+  .d3-field-row { display: flex; flex-direction: column; gap: 4px; }
+  .d3-field-name { font-size: 11px; color: var(--zinc-600); text-transform: uppercase; letter-spacing: 0.06em; }
+  .d3-field-val { font-size: 15px; color: var(--zinc-200); }
+  .d3-field-val.hero { font-size: 20px; color: var(--zinc-50); font-weight: 600; }
+  .d3-field-val.tag {
+    display: inline-flex; background: var(--zinc-800); border-radius: 4px;
+    padding: 3px 8px; font-size: 13px; color: var(--zinc-300);
+  }
+  .d3-field-val.skeleton { background: var(--zinc-800); border-radius: 3px; height: 16px; width: 60%; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .d3-practice-card {
+    background: var(--zinc-900); border: 1px solid var(--zinc-800); border-radius: 12px;
+    padding: 32px; text-align: center; margin-bottom: 20px; min-height: 220px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+  }
+  .d3-card-word { font-size: 32px; font-weight: 700; color: var(--zinc-50); margin-bottom: 8px; }
+  .d3-card-hint { font-size: 13px; color: var(--zinc-500); }
+  .d3-card-trans { font-size: 20px; color: var(--indigo-400); margin-top: 16px; font-weight: 500; }
+  .d3-card-example { font-size: 13px; color: var(--zinc-400); font-style: italic; margin-top: 10px; max-width: 300px; }
+  .d3-flip-hint { font-size: 12px; color: var(--zinc-600); margin-top: 12px; }
+  .d3-ratings { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
+  .d3-rating {
+    padding: 10px 6px; border-radius: 7px; font-size: 12px; font-weight: 500;
+    text-align: center; cursor: pointer; border: 1px solid var(--zinc-700);
+  }
+  .d3-rating.again { background: rgba(248,113,113,0.08); color: var(--red-400); border-color: rgba(248,113,113,0.2); }
+  .d3-rating.hard { background: rgba(245,158,11,0.08); color: var(--amber-400); border-color: rgba(245,158,11,0.2); }
+  .d3-rating.good { background: rgba(99,102,241,0.08); color: var(--indigo-400); border-color: rgba(99,102,241,0.2); }
+  .d3-rating.easy { background: rgba(16,185,129,0.08); color: var(--emerald-400); border-color: rgba(16,185,129,0.2); }
+  .d3-queue-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .d3-queue-count { font-size: 28px; font-weight: 700; color: var(--zinc-50); }
+  .d3-queue-label { font-size: 12px; color: var(--zinc-500); margin-top: 2px; }
+  .d3-start-btn { background: var(--indigo-600); color: #fff; border: none; border-radius: 7px; padding: 10px 20px; font-size: 13px; font-weight: 500; cursor: pointer; }
+
+  /* ===================== DIRECTION 4: FOCUS MODE ===================== */
+  .d4 { background: var(--zinc-950); min-height: 100vh; }
+  .d4-nav {
+    display: flex; align-items: center; padding: 0 32px; height: 56px;
+    border-bottom: 1px solid var(--zinc-900);
+  }
+  .d4-logo { font-size: 15px; font-weight: 700; color: var(--zinc-50); letter-spacing: -0.3px; flex: 1; }
+  .d4-logo span { color: var(--indigo-400); }
+  .d4-nav-links { display: flex; gap: 0; }
+  .d4-nav-link { padding: 8px 16px; font-size: 13px; color: var(--zinc-500); cursor: pointer; position: relative; }
+  .d4-nav-link.active { color: var(--zinc-200); }
+  .d4-nav-link.active::after { content: ''; position: absolute; bottom: -1px; left: 16px; right: 16px; height: 2px; background: var(--indigo-500); border-radius: 2px; }
+  .d4-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--indigo-600); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #fff; margin-left: 16px; }
+
+  .d4-hero { max-width: 680px; margin: 0 auto; padding: 48px 32px 32px; }
+  .d4-hero-label { font-size: 11px; font-weight: 600; color: var(--indigo-400); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px; }
+  .d4-hero-input-wrap {
+    background: var(--zinc-900); border: 1px solid var(--zinc-800); border-radius: 12px;
+    display: flex; align-items: center; padding: 16px 20px; gap: 12px;
+    transition: border-color 0.15s;
+  }
+  .d4-hero-input-wrap:focus-within { border-color: var(--indigo-500); box-shadow: 0 0 0 3px rgba(99,102,241,0.12); }
+  .d4-hero-input {
+    flex: 1; background: transparent; border: none; font-size: 20px;
+    color: var(--zinc-50); outline: none; font-weight: 500;
+  }
+  .d4-hero-input::placeholder { color: var(--zinc-700); font-weight: 400; }
+  .d4-hero-badge { background: var(--zinc-800); border-radius: 5px; padding: 4px 8px; font-size: 11px; color: var(--zinc-500); white-space: nowrap; }
+  .d4-hero-submit { background: var(--indigo-600); border: none; border-radius: 8px; padding: 10px 16px; color: #fff; font-size: 14px; cursor: pointer; white-space: nowrap; }
+
+  .d4-card-result {
+    background: var(--zinc-900); border: 1px solid var(--zinc-800); border-radius: 12px;
+    margin-top: 16px; overflow: hidden;
+  }
+  .d4-card-header { padding: 20px 24px 0; }
+  .d4-card-word { font-size: 28px; font-weight: 700; color: var(--zinc-50); }
+  .d4-card-trans-big { font-size: 18px; color: var(--indigo-400); margin-top: 6px; }
+  .d4-card-divider { height: 1px; background: var(--zinc-800); margin: 16px 0; }
+  .d4-card-details { padding: 0 24px; display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+  .d4-detail .lbl { font-size: 11px; color: var(--zinc-600); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .d4-detail .val { font-size: 14px; color: var(--zinc-200); }
+  .d4-card-example-row { padding: 16px 24px; background: rgba(99,102,241,0.04); border-top: 1px solid var(--zinc-800); margin-top: 16px; font-size: 13px; color: var(--zinc-400); font-style: italic; }
+  .d4-card-footer { padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--zinc-800); }
+  .d4-card-footer-btns { display: flex; gap: 8px; }
+  .d4-footer-btn { background: var(--zinc-800); border: 1px solid var(--zinc-700); border-radius: 6px; padding: 7px 14px; font-size: 12px; color: var(--zinc-300); cursor: pointer; }
+  .d4-footer-btn.primary { background: var(--indigo-600); border-color: var(--indigo-600); color: #fff; }
+  .d4-card-audio { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--zinc-500); }
+  .d4-play-btn { width: 28px; height: 28px; border-radius: 50%; background: var(--zinc-700); border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--zinc-300); }
+
+  .d4-queue-banner {
+    max-width: 680px; margin: 16px auto 0; background: var(--zinc-900);
+    border: 1px solid var(--zinc-800); border-radius: 10px;
+    padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .d4-queue-info { display: flex; align-items: center; gap: 12px; }
+  .d4-queue-num-badge {
+    width: 40px; height: 40px; border-radius: 8px; background: var(--indigo-600);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 700; color: #fff;
+  }
+  .d4-queue-text .main { font-size: 14px; color: var(--zinc-200); font-weight: 500; }
+  .d4-queue-text .sub { font-size: 12px; color: var(--zinc-500); }
+  .d4-practice-btn { background: var(--indigo-600); color: #fff; border: none; border-radius: 7px; padding: 9px 18px; font-size: 13px; font-weight: 500; cursor: pointer; }
+
+  /* ===================== DIRECTION 5: SPEAK MODE FOCUS ===================== */
+  .d5 { background: var(--zinc-950); min-height: 100vh; display: flex; flex-direction: column; }
+  .d5-topbar {
+    height: 52px; background: var(--zinc-900); border-bottom: 1px solid var(--zinc-800);
+    display: flex; align-items: center; padding: 0 24px; gap: 16px;
+  }
+  .d5-back { background: var(--zinc-800); border: none; border-radius: 5px; padding: 5px 10px; font-size: 12px; color: var(--zinc-400); cursor: pointer; }
+  .d5-session-label { font-size: 14px; font-weight: 500; color: var(--zinc-200); }
+  .d5-mode-badge { background: rgba(99,102,241,0.15); color: var(--indigo-400); border: 1px solid rgba(99,102,241,0.25); border-radius: 4px; padding: 3px 10px; font-size: 12px; font-weight: 500; }
+  .d5-progress-wrap { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .d5-progress-bar { width: 120px; height: 4px; background: var(--zinc-800); border-radius: 2px; overflow: hidden; }
+  .d5-progress-fill { height: 100%; background: var(--indigo-500); border-radius: 2px; width: 35%; }
+  .d5-progress-label { font-size: 12px; color: var(--zinc-500); }
+
+  .d5-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; }
+  .d5-card-area { width: 100%; max-width: 520px; }
+  .d5-card {
+    background: var(--zinc-900); border: 1px solid var(--zinc-800); border-radius: 16px;
+    padding: 48px 40px; text-align: center; margin-bottom: 24px;
+  }
+  .d5-card-prompt { font-size: 12px; color: var(--zinc-600); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px; }
+  .d5-card-main { font-size: 40px; font-weight: 700; color: var(--zinc-50); margin-bottom: 8px; letter-spacing: -0.5px; }
+  .d5-card-phonetic { font-size: 16px; color: var(--zinc-500); margin-bottom: 4px; }
+  .d5-card-translation { font-size: 16px; color: var(--zinc-400); }
+
+  .d5-feedback {
+    background: var(--zinc-900); border: 1px solid var(--zinc-700); border-radius: 12px;
+    padding: 20px 24px; margin-bottom: 20px;
+  }
+  .d5-feedback-title { font-size: 12px; color: var(--zinc-500); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+  .d5-syllables { display: flex; gap: 4px; justify-content: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .d5-syl {
+    padding: 8px 14px; border-radius: 7px; font-size: 20px; font-weight: 600;
+    background: var(--zinc-800); color: var(--zinc-300);
+  }
+  .d5-syl.wrong { background: rgba(245,158,11,0.15); color: var(--amber-400); border: 1px solid rgba(245,158,11,0.3); }
+  .d5-syl.correct { background: rgba(16,185,129,0.1); color: var(--emerald-400); }
+  .d5-feedback-note { font-size: 13px; color: var(--zinc-400); text-align: center; line-height: 1.5; }
+  .d5-feedback-note strong { color: var(--zinc-200); }
+
+  .d5-mic-area { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .d5-mic-btn {
+    width: 72px; height: 72px; border-radius: 50%; background: var(--indigo-600);
+    border: none; display: flex; align-items: center; justify-content: center;
+    font-size: 28px; cursor: pointer; box-shadow: 0 0 0 8px rgba(99,102,241,0.12);
+    transition: all 0.15s;
+  }
+  .d5-mic-btn:hover { background: var(--indigo-500); box-shadow: 0 0 0 12px rgba(99,102,241,0.15); }
+  .d5-mic-hint { font-size: 12px; color: var(--zinc-600); }
+  .d5-skip { background: transparent; border: none; font-size: 12px; color: var(--zinc-600); cursor: pointer; text-decoration: underline; }
+
+  /* ===================== DIRECTION 6: CARD-CENTRIC ===================== */
+  .d6 { background: var(--zinc-950); min-height: 100vh; display: flex; }
+  .d6-sidebar {
+    width: 260px; background: var(--zinc-900); border-right: 1px solid var(--zinc-800);
+    display: flex; flex-direction: column; min-height: 100vh; flex-shrink: 0;
+  }
+  .d6-sidebar-top { padding: 20px; border-bottom: 1px solid var(--zinc-800); }
+  .d6-logo { font-size: 16px; font-weight: 700; color: var(--zinc-50); margin-bottom: 16px; }
+  .d6-logo span { color: var(--indigo-400); }
+  .d6-search {
+    width: 100%; background: var(--zinc-800); border: 1px solid var(--zinc-700); border-radius: 6px;
+    padding: 8px 12px; font-size: 13px; color: var(--zinc-300); outline: none;
+  }
+  .d6-search::placeholder { color: var(--zinc-600); }
+  .d6-deck-list { flex: 1; padding: 12px 0; overflow-y: auto; }
+  .d6-deck-item { padding: 8px 20px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+  .d6-deck-item:hover { background: var(--zinc-800); }
+  .d6-deck-item.active { background: rgba(99,102,241,0.1); border-left: 2px solid var(--indigo-500); }
+  .d6-deck-name { font-size: 13px; color: var(--zinc-300); }
+  .d6-deck-meta { font-size: 11px; color: var(--zinc-600); }
+  .d6-deck-due { font-size: 11px; background: rgba(245,158,11,0.15); color: var(--amber-400); border-radius: 3px; padding: 1px 6px; }
+  .d6-sidebar-footer { padding: 16px 20px; border-top: 1px solid var(--zinc-800); }
+  .d6-settings-btn { font-size: 12px; color: var(--zinc-600); cursor: pointer; }
+
+  .d6-main { flex: 1; display: flex; flex-direction: column; }
+  .d6-toolbar {
+    height: 52px; border-bottom: 1px solid var(--zinc-800);
+    display: flex; align-items: center; padding: 0 24px; gap: 12px;
+  }
+  .d6-deck-title { font-size: 15px; font-weight: 600; color: var(--zinc-200); flex: 1; }
+  .d6-toolbar-btn {
+    background: var(--zinc-800); border: 1px solid var(--zinc-700); border-radius: 6px;
+    padding: 6px 14px; font-size: 12px; color: var(--zinc-400); cursor: pointer;
+  }
+  .d6-toolbar-btn.primary { background: var(--indigo-600); border-color: var(--indigo-600); color: #fff; }
+
+  .d6-content { flex: 1; padding: 24px; display: grid; grid-template-columns: 1fr 320px; gap: 20px; }
+  .d6-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; align-content: start; }
+  .d6-card-tile {
+    background: var(--zinc-900); border: 1px solid var(--zinc-800); border-radius: 9px;
+    padding: 16px; cursor: pointer; transition: border-color 0.15s;
+  }
+  .d6-card-tile:hover { border-color: var(--zinc-700); }
+  .d6-card-tile.selected { border-color: var(--indigo-500); background: rgba(99,102,241,0.05); }
+  .d6-tile-word { font-size: 15px; font-weight: 600; color: var(--zinc-100); margin-bottom: 4px; }
+  .d6-tile-trans { font-size: 12px; color: var(--zinc-500); }
+  .d6-tile-tags { display: flex; gap: 4px; margin-top: 8px; }
+  .d6-tile-tag { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: var(--zinc-800); color: var(--zinc-500); }
+  .d6-tile-tag.due { background: rgba(245,158,11,0.1); color: var(--amber-500); }
+
+  .d6-detail { background: var(--zinc-900); border: 1px solid var(--zinc-800); border-radius: 10px; padding: 24px; height: fit-content; }
+  .d6-detail-word { font-size: 28px; font-weight: 700; color: var(--zinc-50); margin-bottom: 6px; }
+  .d6-detail-trans { font-size: 18px; color: var(--indigo-400); margin-bottom: 20px; }
+  .d6-detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--zinc-800); font-size: 13px; }
+  .d6-detail-row .key { color: var(--zinc-500); }
+  .d6-detail-row .val { color: var(--zinc-200); text-align: right; }
+  .d6-detail-example { margin-top: 16px; font-size: 13px; color: var(--zinc-400); font-style: italic; line-height: 1.6; }
+  .d6-detail-actions { display: flex; gap: 8px; margin-top: 20px; }
+  .d6-detail-action { flex: 1; padding: 9px; border-radius: 7px; font-size: 12px; font-weight: 500; text-align: center; cursor: pointer; border: 1px solid var(--zinc-700); background: var(--zinc-800); color: var(--zinc-300); }
+  .d6-detail-action.practice { background: var(--indigo-600); border-color: var(--indigo-600); color: #fff; }
+
+  /* OVERVIEW HEADER */
+  .overview-header {
+    background: var(--zinc-950); border-bottom: 1px solid var(--zinc-800);
+    padding: 40px 48px 32px;
+  }
+  .overview-title { font-size: 28px; font-weight: 700; color: var(--zinc-50); margin-bottom: 8px; }
+  .overview-sub { font-size: 14px; color: var(--zinc-500); line-height: 1.6; max-width: 600px; }
+  .direction-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 0; }
+  .direction-cell { border: 1px solid var(--zinc-800); margin: -1px; padding: 28px 32px; cursor: pointer; transition: background 0.15s; }
+  .direction-cell:hover { background: var(--zinc-900); }
+  .dc-num { font-size: 11px; color: var(--indigo-400); font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
+  .dc-title { font-size: 16px; font-weight: 600; color: var(--zinc-100); margin-bottom: 6px; }
+  .dc-desc { font-size: 13px; color: var(--zinc-500); line-height: 1.5; }
+  .dc-tags { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+  .dc-tag { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: var(--zinc-800); color: var(--zinc-500); }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <span class="nav-title">lingosips — Design Directions</span>
+  <button class="nav-btn active" onclick="show('overview')">Overview</button>
+  <button class="nav-btn" onclick="show('d1')">D1 · Linear Tool</button>
+  <button class="nav-btn" onclick="show('d2')">D2 · Dashboard Hero</button>
+  <button class="nav-btn" onclick="show('d3')">D3 · Split Panel</button>
+  <button class="nav-btn" onclick="show('d4')">D4 · Focus Flow</button>
+  <button class="nav-btn" onclick="show('d5')">D5 · Speak Mode</button>
+  <button class="nav-btn" onclick="show('d6')">D6 · Card Browser</button>
+</nav>
+
+<!-- OVERVIEW -->
+<div id="overview" class="section active">
+  <div class="overview-header">
+    <div class="overview-title">lingosips — Design Directions</div>
+    <div class="overview-sub">6 visual and interaction approaches for the lingosips interface. Each direction is a complete vision — different layout, information hierarchy, and interaction pattern. Click any direction to explore the full mockup.</div>
+  </div>
+  <div class="direction-grid">
+    <div class="direction-cell" onclick="show('d1')">
+      <div class="dc-num">Direction 1</div>
+      <div class="dc-title">Linear Tool</div>
+      <div class="dc-desc">Classic two-panel tool layout. Left sidebar with navigation and deck list. Main area shows card creation + preview + stats. Closest to Linear/VSCode information density.</div>
+      <div class="dc-tags"><span class="dc-tag">Sidebar nav</span><span class="dc-tag">Dense</span><span class="dc-tag">Tool-like</span></div>
+    </div>
+    <div class="direction-cell" onclick="show('d2')">
+      <div class="dc-num">Direction 2</div>
+      <div class="dc-title">Dashboard Hero</div>
+      <div class="dc-desc">Icon-only slim sidebar. Main area split: large card creation zone on the left, review queue + recent cards on the right. Creation is the hero element.</div>
+      <div class="dc-tags"><span class="dc-tag">Slim sidebar</span><span class="dc-tag">Creation-first</span><span class="dc-tag">Dual panel</span></div>
+    </div>
+    <div class="direction-cell" onclick="show('d3')">
+      <div class="dc-num">Direction 3</div>
+      <div class="dc-title">Split Panel</div>
+      <div class="dc-desc">Top navigation bar. Body splits equally: creation on the left, practice session on the right. Both modes always visible. Most literal interpretation of "continuous learning."</div>
+      <div class="dc-tags"><span class="dc-tag">Top nav</span><span class="dc-tag">50/50 split</span><span class="dc-tag">Always-on</span></div>
+    </div>
+    <div class="direction-cell" onclick="show('d4')">
+      <div class="dc-num">Direction 4</div>
+      <div class="dc-title">Focus Flow</div>
+      <div class="dc-desc">Top navigation, centered content column (max 680px). Large prominent creation input. Card result expands below. Queue shown as a subtle banner. Maximum focus, minimum chrome.</div>
+      <div class="dc-tags"><span class="dc-tag">Centered</span><span class="dc-tag">Minimal chrome</span><span class="dc-tag">Progressive</span></div>
+    </div>
+    <div class="direction-cell" onclick="show('d5')">
+      <div class="dc-num">Direction 5</div>
+      <div class="dc-title">Speak Mode</div>
+      <div class="dc-desc">Full-viewport practice session mockup — specifically the speak mode with syllable-level pronunciation feedback. Shows the novel UX pattern in detail.</div>
+      <div class="dc-tags"><span class="dc-tag">Full viewport</span><span class="dc-tag">Syllable feedback</span><span class="dc-tag">Practice</span></div>
+    </div>
+    <div class="direction-cell" onclick="show('d6')">
+      <div class="dc-num">Direction 6</div>
+      <div class="dc-title">Card Browser</div>
+      <div class="dc-desc">Wider sidebar with deck list + search. Main area is a card grid browser with a detail panel. Emphasizes the deck/collection management experience. Good for power users with large decks.</div>
+      <div class="dc-tags"><span class="dc-tag">Wide sidebar</span><span class="dc-tag">Card grid</span><span class="dc-tag">Collection-first</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- DIRECTION 1: LINEAR TOOL -->
+<div id="d1" class="section">
+  <div class="d1">
+    <aside class="d1-sidebar">
+      <div class="d1-logo">lingo<span>sips</span></div>
+      <div class="d1-nav-item active"><span class="dot"></span> Home</div>
+      <div class="d1-nav-item"><span class="dot"></span> Practice</div>
+      <div class="d1-nav-item"><span class="dot"></span> Progress</div>
+      <div class="d1-nav-item"><span class="dot"></span> Import</div>
+      <div class="d1-deck-label">Decks</div>
+      <div class="d1-deck"><span>Spanish</span><span class="count">180</span></div>
+      <div class="d1-deck"><span>French</span><span class="count">42</span></div>
+      <div class="d1-deck"><span>+ New deck</span></div>
+      <div style="margin-top:auto; padding: 20px;">
+        <div style="font-size:11px; color:var(--zinc-700)">Using local Qwen</div>
+        <div style="font-size:11px; color:var(--zinc-700); margin-top:2px">Speech: Whisper</div>
+      </div>
+    </aside>
+    <main class="d1-main">
+      <div class="d1-header">
+        <div>
+          <div class="d1-heading">Good evening, Oleksii</div>
+          <div class="d1-subheading">Spanish · 180 cards</div>
+        </div>
+        <div class="d1-queue-pill"><span class="num">22</span> cards due · Practice</div>
+      </div>
+      <div class="d1-create-area">
+        <div class="d1-input-row">
+          <input class="d1-input" placeholder="Type a word or phrase in Spanish..." value="melancólico">
+          <button class="d1-btn">Create card</button>
+        </div>
+        <div class="d1-card-preview">
+          <div class="d1-field" style="grid-column:1/-1">
+            <div class="d1-field-label">Translation</div>
+            <div class="d1-field-value lg">melancholic, sad, wistful</div>
+          </div>
+          <div class="d1-field">
+            <div class="d1-field-label">Gender</div>
+            <div class="d1-field-value">masculino / femenino</div>
+          </div>
+          <div class="d1-field">
+            <div class="d1-field-label">Plural</div>
+            <div class="d1-field-value">melancólicos / melancólicas</div>
+          </div>
+          <div class="d1-field" style="grid-column:1/-1">
+            <div class="d1-field-label">Example</div>
+            <div class="d1-field-value muted">Era un hombre melancólico que miraba al horizonte con añoranza.</div>
+          </div>
+          <div class="d1-field">
+            <div class="d1-field-label">Audio</div>
+            <button class="d1-audio-btn">▶ meh-lan-KO-lee-ko</button>
+          </div>
+        </div>
+      </div>
+      <div class="d1-stats">
+        <div class="d1-stat"><div class="d1-stat-num">180</div><div class="d1-stat-label">Total cards</div></div>
+        <div class="d1-stat"><div class="d1-stat-num">94%</div><div class="d1-stat-label">Recall rate (7d)</div></div>
+        <div class="d1-stat"><div class="d1-stat-num">B1</div><div class="d1-stat-label">CEFR estimate</div></div>
+      </div>
+    </main>
+  </div>
+  <div class="dir-label"><strong>D1 · Linear Tool</strong>Sidebar nav + dense main area. Creation input always visible at top. Stats below. Familiar developer-tool layout.</div>
+</div>
+
+<!-- DIRECTION 2: DASHBOARD HERO -->
+<div id="d2" class="section">
+  <div class="d2">
+    <aside class="d2-sidebar">
+      <div class="d2-icon-logo">l</div>
+      <div class="d2-icon active" title="Home">⌂</div>
+      <div class="d2-icon" title="Practice">▷</div>
+      <div class="d2-icon" title="Progress">◈</div>
+      <div class="d2-icon" title="Decks">⊞</div>
+      <div class="d2-icon" title="Import">↑</div>
+      <div style="margin-top:auto">
+        <div class="d2-icon" title="Settings">⚙</div>
+      </div>
+    </aside>
+    <div class="d2-main">
+      <div class="d2-center">
+        <div class="d2-welcome">Create a card</div>
+        <div class="d2-sub">Type any word or phrase — AI fills everything</div>
+        <div class="d2-create-card">
+          <div class="d2-create-title">New card</div>
+          <div class="d2-lang-row">
+            <span class="d2-lang-tag">🇺🇦 Ukrainian</span>
+            <span class="d2-arrow">→</span>
+            <span class="d2-lang-tag">🇪🇸 Spanish</span>
+          </div>
+          <input class="d2-big-input" placeholder="melancólico" value="melancólico" style="margin-top:12px">
+          <div class="d2-result">
+            <div class="d2-result-word">melancólico</div>
+            <div class="d2-result-trans">меланхолійний · melancholic</div>
+            <div class="d2-result-grid">
+              <div class="d2-result-field"><div class="lbl">Gender</div><div class="val">m/f · melancólica</div></div>
+              <div class="d2-result-field"><div class="lbl">Plural</div><div class="val">melancólicos/as</div></div>
+              <div class="d2-result-field"><div class="lbl">Register</div><div class="val">literary, formal</div></div>
+              <div class="d2-result-field"><div class="lbl">Audio</div><div class="val">▶ meh-lan-KO-lee-ko</div></div>
+            </div>
+            <div class="d2-result-example">"Era un hombre melancólico que miraba al horizonte con añoranza."</div>
+            <div class="d2-save-row">
+              <button class="d2-save-btn">Save to Spanish deck</button>
+              <button class="d2-skip-btn">Discard</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="d2-right">
+        <div class="d2-queue-title">Review queue</div>
+        <div class="d2-queue-hero">
+          <div class="d2-queue-num">22</div>
+          <div class="d2-queue-label">cards due today</div>
+          <button class="d2-queue-cta">Start practice →</button>
+        </div>
+        <div class="d2-mode-row">
+          <div class="d2-mode-btn sel">Self-assess</div>
+          <div class="d2-mode-btn">Write</div>
+          <div class="d2-mode-btn">Speak</div>
+        </div>
+        <div class="d2-recent-label">Recent cards</div>
+        <div class="d2-recent-card"><div><div class="d2-recent-word">aguacate</div><div class="d2-recent-trans">авокадо · avocado</div></div><span class="d2-fsrs-tag due">due</span></div>
+        <div class="d2-recent-card"><div><div class="d2-recent-word">añoranza</div><div class="d2-recent-trans">туга · longing</div></div><span class="d2-fsrs-tag ok">3d</span></div>
+        <div class="d2-recent-card"><div><div class="d2-recent-word">desentendido</div><div class="d2-recent-trans">байдужий · indifferent</div></div><span class="d2-fsrs-tag ok">5d</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="dir-label"><strong>D2 · Dashboard Hero</strong>Slim icon sidebar. Creation is the dominant panel. Review queue and recent cards live in a persistent right column.</div>
+</div>
+
+<!-- DIRECTION 3: SPLIT PANEL -->
+<div id="d3" class="section">
+  <div class="d3">
+    <div class="d3-topbar">
+      <div class="d3-logo">lingo<span>sips</span></div>
+      <div class="d3-topnav">
+        <div class="d3-topnav-item active">Home</div>
+        <div class="d3-topnav-item">Decks</div>
+        <div class="d3-topnav-item">Progress</div>
+        <div class="d3-topnav-item">Settings</div>
+      </div>
+      <div class="d3-status"><span class="d3-status-dot"></span> OpenRouter connected</div>
+    </div>
+    <div class="d3-body">
+      <div class="d3-left">
+        <div class="d3-panel-title">Create</div>
+        <input class="d3-input-big" placeholder="Type a word or phrase..." value="melancólico">
+        <div class="d3-input-hint">Press Enter to generate · Spanish → Ukrainian</div>
+        <div class="d3-fields">
+          <div class="d3-field-row"><div class="d3-field-name">Translation</div><div class="d3-field-val hero">melancholic, wistful</div></div>
+          <div class="d3-field-row">
+            <div class="d3-field-name">Forms</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <span class="d3-field-val tag">m. melancólico</span>
+              <span class="d3-field-val tag">f. melancólica</span>
+              <span class="d3-field-val tag">pl. melancólicos</span>
+            </div>
+          </div>
+          <div class="d3-field-row"><div class="d3-field-name">Example</div><div class="d3-field-val" style="font-style:italic;color:var(--zinc-400)">"Era un hombre melancólico que miraba al horizonte."</div></div>
+          <div class="d3-field-row"><div class="d3-field-name">Audio</div><button class="d1-audio-btn">▶ Play pronunciation</button></div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="d1-btn" style="flex:1">Save to Spanish</button>
+            <button style="background:var(--zinc-800);border:1px solid var(--zinc-700);border-radius:7px;padding:10px 14px;font-size:13px;color:var(--zinc-400);cursor:pointer">Edit</button>
+          </div>
+        </div>
+      </div>
+      <div class="d3-right">
+        <div class="d3-queue-row">
+          <div><div class="d3-queue-count">22</div><div class="d3-queue-label">cards due</div></div>
+          <button class="d3-start-btn">Practice now</button>
+        </div>
+        <div class="d3-practice-card">
+          <div class="d3-card-word">aguacate</div>
+          <div class="d3-card-hint">Tap to reveal translation</div>
+          <div class="d3-card-trans">авокадо · avocado</div>
+          <div class="d3-card-example">"Pon más aguacate en el guacamole."</div>
+          <div class="d3-flip-hint">Space to flip</div>
+        </div>
+        <div class="d3-ratings">
+          <div class="d3-rating again">Again</div>
+          <div class="d3-rating hard">Hard</div>
+          <div class="d3-rating good">Good</div>
+          <div class="d3-rating easy">Easy</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="dir-label"><strong>D3 · Split Panel</strong>Creation and practice side by side at all times. Most literal "continuous learning" interpretation.</div>
+</div>
+
+<!-- DIRECTION 4: FOCUS FLOW -->
+<div id="d4" class="section">
+  <div class="d4">
+    <div class="d4-nav">
+      <div class="d4-logo">lingo<span>sips</span></div>
+      <div class="d4-nav-links">
+        <div class="d4-nav-link active">Home</div>
+        <div class="d4-nav-link">Decks</div>
+        <div class="d4-nav-link">Progress</div>
+        <div class="d4-nav-link">Settings</div>
+      </div>
+      <div class="d4-avatar">O</div>
+    </div>
+    <div class="d4-hero">
+      <div class="d4-hero-label">Spanish · 180 cards</div>
+      <div class="d4-hero-input-wrap">
+        <input class="d4-hero-input" placeholder="Type a word or phrase..." value="melancólico">
+        <span class="d4-hero-badge">🇺🇦 → 🇪🇸</span>
+        <button class="d4-hero-submit">Create →</button>
+      </div>
+      <div class="d4-card-result">
+        <div class="d4-card-header">
+          <div class="d4-card-word">melancólico</div>
+          <div class="d4-card-trans-big">melancholic · меланхолійний</div>
+        </div>
+        <div class="d4-card-divider"></div>
+        <div class="d4-card-details">
+          <div class="d4-detail"><div class="lbl">Gender</div><div class="val">m/f variable</div></div>
+          <div class="d4-detail"><div class="lbl">Forms</div><div class="val">-o / -a / -os / -as</div></div>
+          <div class="d4-detail"><div class="lbl">Register</div><div class="val">Literary, formal</div></div>
+        </div>
+        <div class="d4-card-example-row">"Era un hombre melancólico que miraba al horizonte con añoranza perpetua."</div>
+        <div class="d4-card-footer">
+          <div class="d4-card-audio">
+            <button class="d4-play-btn">▶</button>
+            meh-lan-KO-lee-ko
+          </div>
+          <div class="d4-card-footer-btns">
+            <button class="d4-footer-btn">Edit</button>
+            <button class="d4-footer-btn">+ Add image</button>
+            <button class="d4-footer-btn primary">Save to deck ✓</button>
+          </div>
+        </div>
+      </div>
+      <div class="d4-queue-banner">
+        <div class="d4-queue-info">
+          <div class="d4-queue-num-badge">22</div>
+          <div class="d4-queue-text">
+            <div class="main">Cards due for review</div>
+            <div class="sub">Last session: yesterday · 94% recall</div>
+          </div>
+        </div>
+        <button class="d4-practice-btn">Practice now →</button>
+      </div>
+    </div>
+  </div>
+  <div class="dir-label"><strong>D4 · Focus Flow</strong>Centered single column. Maximum focus on the creation input. Card result expands inline. Queue is a quiet persistent banner — never intrusive.</div>
+</div>
+
+<!-- DIRECTION 5: SPEAK MODE -->
+<div id="d5" class="section">
+  <div class="d5">
+    <div class="d5-topbar">
+      <button class="d5-back">← End session</button>
+      <span class="d5-session-label">Spanish · 22 cards</span>
+      <span class="d5-mode-badge">Speak mode</span>
+      <div class="d5-progress-wrap">
+        <div class="d5-progress-bar"><div class="d5-progress-fill"></div></div>
+        <span class="d5-progress-label">8 / 22</span>
+      </div>
+    </div>
+    <div class="d5-body">
+      <div class="d5-card-area">
+        <div class="d5-card">
+          <div class="d5-card-prompt">Pronounce this word</div>
+          <div class="d5-card-main">aguacate</div>
+          <div class="d5-card-phonetic">[ a·gwa·ˈka·te ]</div>
+          <div class="d5-card-translation">авокадо · avocado</div>
+        </div>
+
+        <div class="d5-feedback">
+          <div class="d5-feedback-title">Pronunciation feedback</div>
+          <div class="d5-syllables">
+            <div class="d5-syl correct">a</div>
+            <div class="d5-syl correct">gua</div>
+            <div class="d5-syl wrong">CA</div>
+            <div class="d5-syl correct">te</div>
+          </div>
+          <div class="d5-feedback-note">Stress falls on <strong>CA</strong> — try <strong>a·gwa·CA·te</strong>, not <strong>A·gwa·ca·te</strong>. The stressed syllable should be slightly longer and louder.</div>
+        </div>
+
+        <div class="d5-mic-area">
+          <button class="d5-mic-btn">🎤</button>
+          <div class="d5-mic-hint">Tap to try again</div>
+          <button class="d5-skip">Skip this card</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="dir-label"><strong>D5 · Speak Mode Detail</strong>Full-viewport practice. Syllable-level feedback highlighted in amber. Specific correction text below. Mic tap to retry. No binary pass/fail — only explanation.</div>
+</div>
+
+<!-- DIRECTION 6: CARD BROWSER -->
+<div id="d6" class="section">
+  <div class="d6">
+    <aside class="d6-sidebar">
+      <div class="d6-sidebar-top">
+        <div class="d6-logo">lingo<span style="color:var(--indigo-400)">sips</span></div>
+        <input class="d6-search" placeholder="Search cards...">
+      </div>
+      <div class="d6-deck-list">
+        <div style="padding:12px 20px 6px;font-size:11px;color:var(--zinc-600);text-transform:uppercase;letter-spacing:0.08em">Decks</div>
+        <div class="d6-deck-item active">
+          <div><div class="d6-deck-name">Spanish</div><div class="d6-deck-meta">180 cards</div></div>
+          <span class="d6-deck-due">22 due</span>
+        </div>
+        <div class="d6-deck-item">
+          <div><div class="d6-deck-name">French</div><div class="d6-deck-meta">42 cards</div></div>
+          <span class="d6-deck-due">3 due</span>
+        </div>
+        <div class="d6-deck-item">
+          <div><div class="d6-deck-name" style="color:var(--zinc-600)">+ New deck</div></div>
+        </div>
+      </div>
+      <div class="d6-sidebar-footer">
+        <div class="d6-settings-btn">⚙ Settings · Local Qwen active</div>
+      </div>
+    </aside>
+    <div class="d6-main">
+      <div class="d6-toolbar">
+        <div class="d6-deck-title">Spanish — 180 cards</div>
+        <button class="d6-toolbar-btn">Import</button>
+        <button class="d6-toolbar-btn">+ Add card</button>
+        <button class="d6-toolbar-btn primary">Practice 22 due →</button>
+      </div>
+      <div class="d6-content">
+        <div class="d6-card-grid">
+          <div class="d6-card-tile selected">
+            <div class="d6-tile-word">melancólico</div>
+            <div class="d6-tile-trans">melancholic</div>
+            <div class="d6-tile-tags"><span class="d6-tile-tag">adj</span><span class="d6-tile-tag due">due</span></div>
+          </div>
+          <div class="d6-card-tile">
+            <div class="d6-tile-word">aguacate</div>
+            <div class="d6-tile-trans">avocado</div>
+            <div class="d6-tile-tags"><span class="d6-tile-tag">noun</span><span class="d6-tile-tag due">due</span></div>
+          </div>
+          <div class="d6-card-tile">
+            <div class="d6-tile-word">añoranza</div>
+            <div class="d6-tile-trans">longing, nostalgia</div>
+            <div class="d6-tile-tags"><span class="d6-tile-tag">noun</span><span class="d6-tile-tag">3d</span></div>
+          </div>
+          <div class="d6-card-tile">
+            <div class="d6-tile-word">desentendido</div>
+            <div class="d6-tile-trans">indifferent, ignoring</div>
+            <div class="d6-tile-tags"><span class="d6-tile-tag">adj</span><span class="d6-tile-tag">5d</span></div>
+          </div>
+          <div class="d6-card-tile">
+            <div class="d6-tile-word">madrugada</div>
+            <div class="d6-tile-trans">early morning hours</div>
+            <div class="d6-tile-tags"><span class="d6-tile-tag">noun</span><span class="d6-tile-tag">7d</span></div>
+          </div>
+          <div class="d6-card-tile">
+            <div class="d6-tile-word">crepúsculo</div>
+            <div class="d6-tile-trans">twilight, dusk</div>
+            <div class="d6-tile-tags"><span class="d6-tile-tag">noun</span><span class="d6-tile-tag due">due</span></div>
+          </div>
+        </div>
+        <div class="d6-detail">
+          <div class="d6-detail-word">melancólico</div>
+          <div class="d6-detail-trans">melancholic · меланхолійний</div>
+          <div class="d6-detail-row"><span class="key">Gender</span><span class="val">m/f variable</span></div>
+          <div class="d6-detail-row"><span class="key">Forms</span><span class="val">-o · -a · -os · -as</span></div>
+          <div class="d6-detail-row"><span class="key">Register</span><span class="val">Literary</span></div>
+          <div class="d6-detail-row"><span class="key">FSRS due</span><span class="val" style="color:var(--amber-400)">Today</span></div>
+          <div class="d6-detail-row"><span class="key">Recall</span><span class="val">87% (last 5 reviews)</span></div>
+          <div class="d6-detail-example">"Era un hombre melancólico que miraba al horizonte con añoranza perpetua."</div>
+          <div class="d6-detail-actions">
+            <div class="d6-detail-action">Edit</div>
+            <div class="d6-detail-action">▶ Audio</div>
+            <div class="d6-detail-action practice">Practice →</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="dir-label"><strong>D6 · Card Browser</strong>Wide sidebar with deck list. Card grid in main area. Detail panel on right. Best for managing large decks — power user approach.</div>
+</div>
+
+<script>
+function show(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  const map = {overview:0,d1:1,d2:2,d3:3,d4:4,d5:5,d6:6};
+  document.querySelectorAll('.nav-btn')[map[id]].classList.add('active');
+}
+</script>
+</body>
+</html>
