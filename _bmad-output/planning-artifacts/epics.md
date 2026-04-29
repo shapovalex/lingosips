@@ -244,11 +244,20 @@ So that the full-stack development environment is ready for feature implementati
 
 **Given** a PR is opened
 **When** GitHub Actions CI runs
-**Then** `ruff check`, `pytest` (no failures), and `vitest run` all pass before merge is allowed
+**Then** `ruff check`, `pytest` (no failures), `vitest run`, and `axe-core` accessibility scan all pass before merge is allowed
 
 **Given** the FastAPI app starts via `__main__.py`
 **Then** it binds exclusively to `127.0.0.1:7842` — never `0.0.0.0`
-**And** the startup sequence runs in order: data directory check → uvicorn start → browser open
+**And** the startup sequence runs in order: data directory check → schema migration → uvicorn start → browser open
+
+**Given** the project is freshly initialized
+**When** the app starts for the first time
+**Then** `db/models.py` defines all SQLModel tables: `Card`, `Deck`, `Settings`, `Review` (table name: `reviews`), `Job` (table name: `jobs`)
+**And** Alembic `001_initial_schema` migration is generated from those models with all columns required across all epics
+**And** `db/base.py` exposes `engine` and `get_session` for use across the codebase
+**And** the migration runs automatically at startup before the server accepts requests
+
+_Migration strategy decision: all tables are created in `001_initial_schema`. Subsequent stories do not add new migrations for new tables — schema is defined upfront for this greenfield project. Column additions required by later stories (e.g., new card fields) use incremental Alembic migrations numbered `002_`, `003_`, etc._
 
 ### Story 1.2: App Shell & Design System Foundation
 
@@ -284,7 +293,44 @@ So that all subsequent UI work builds on a consistent, accessible foundation.
 **Then** Inter variable font is loaded with the correct type scale (12px–36px using rem, body line-height 1.6, heading 1.2)
 **And** font weights 400 (body) / 500 (labels) / 600 (primary headings) are applied
 
-### Story 1.3: First-Run Language Onboarding
+**Given** I am navigating the app using a keyboard
+**When** any page loads
+**Then** a "Skip to main content" link is the first focusable element
+
+**Given** the app is under normal load (< 20 cards in DB)
+**When** the home dashboard renders
+**Then** time to interactive is under 2 seconds on a modern laptop (NFR3)
+
+### Story 1.3: Secure Credential Storage Foundation
+
+As a user,
+I want all API keys stored via the OS keychain (never plaintext) and all logs stripped of credential patterns,
+So that my credentials are secure even if log files or config files are examined.
+
+**Acceptance Criteria:**
+
+**Given** any API key is saved in the app
+**When** `services/credentials.py` writes it
+**Then** the `keyring` library stores it in the OS keychain (macOS Keychain, Windows Credential Locker, Linux libsecret/kwallet)
+**And** if no OS keychain is available, an encrypted file store is used as fallback
+**And** the credential is never written to SQLite, `.env` files, or any plaintext config
+
+**Given** the application produces any log output
+**When** a string matching a credential pattern is present in the data
+**Then** the `structlog` credential-scrubbing processor replaces it with `[REDACTED]` before emission
+
+**Given** an unhandled exception occurs
+**When** the Python traceback or error response is generated
+**Then** no credential values appear in the traceback, error detail, or HTTP error response
+
+**Given** any module needs to read a credential
+**Then** it must call `services/credentials.py` — no module reads from `keyring` directly
+
+**Given** `LINGOSIPS_LOG_LEVEL=DEBUG` is set
+**When** verbose logging runs
+**Then** credentials are still scrubbed — debug logging does not bypass the credential processor
+
+### Story 1.4: First-Run Language Onboarding
 
 As a first-time user,
 I want a simple language selection wizard on first launch (native language + target language only),
@@ -316,7 +362,7 @@ So that I can reach the card creation interface in under 60 seconds with zero co
 **When** the app starts
 **Then** Alembic runs `001_initial_schema` migration automatically before the server accepts requests
 
-### Story 1.4: AI Provider Abstraction & Local LLM Fallback
+### Story 1.5: AI Provider Abstraction & Local LLM Fallback
 
 As a user,
 I want card generation to work out-of-the-box using local Qwen when no API key is configured,
@@ -347,7 +393,39 @@ So that I get value from the app with zero configuration.
 **When** `get_llm_provider()` returns it
 **Then** no changes to `core/` business logic are required
 
-### Story 1.5: Card Creation API & SSE Streaming
+### Story 1.6: Speech Provider Abstraction & Local TTS Fallback
+
+As a user,
+I want speech synthesis to work out-of-the-box using local pyttsx3 when no Azure Speech credentials are configured,
+So that audio is available with zero configuration.
+
+**Acceptance Criteria:**
+
+**Given** no Azure Speech credentials are configured
+**When** TTS is requested
+**Then** `services/registry.py` returns `Pyttsx3Provider`
+**And** audio is synthesized using `pyttsx3` without error
+
+**Given** Azure Speech credentials are configured in the keyring
+**When** TTS is requested
+**Then** `services/registry.py` returns `AzureSpeechProvider`
+**And** synthesis uses the Azure Speech API for higher-quality audio
+
+**Given** `get_speech_provider()` is called anywhere
+**Then** it is always resolved via FastAPI `Depends()` — direct instantiation of providers is never used outside `services/`
+
+**Given** `AbstractSpeechProvider` is defined in `services/speech/base.py`
+**Then** it declares two methods: `synthesize(text: str, language: str) → bytes` and `evaluate_pronunciation(audio: bytes, target: str, language: str) → SyllableResult`
+**And** `Pyttsx3Provider` implements `synthesize()` and raises `NotImplementedError` for `evaluate_pronunciation()` — TTS-only providers do not evaluate speech
+**And** `AzureSpeechProvider` implements both methods
+**And** `WhisperLocalProvider` implements `evaluate_pronunciation()` and raises `NotImplementedError` for `synthesize()` — evaluation-only providers do not perform TTS
+**And** `SyllableResult` is a dataclass defined in `services/speech/base.py`: `overall_correct: bool`, `syllables: list[SyllableDetail]`, `correction_message: str | None`
+
+**Given** a new provider class is added to `services/speech/` implementing `AbstractSpeechProvider`
+**When** `get_speech_provider()` returns it
+**Then** no changes to `core/` business logic are required
+
+### Story 1.7: Card Creation API & SSE Streaming
 
 As a user,
 I want to submit a word or phrase and receive a complete AI-generated card with translation, grammatical forms, and example sentences streamed field-by-field,
@@ -379,9 +457,19 @@ So that I can build vocabulary in seconds with real-time visual feedback.
 **Then** the envelope is exactly: `event: {event_type}\ndata: {json_payload}\n\n`
 **And** the JSON payload uses snake_case field names throughout
 
+**Given** a card is created
+**When** it is first saved
+**Then** FSRS initial state is set on the card: `stability=0`, `difficulty=0`, `state=New`, `due=now`, `reps=0`, `lapses=0`, `last_review=null`
+**And** the card appears immediately in `GET /practice/queue`
+
+**Given** the LLM returns a response and the card is ready to stream
+**When** the SSE stream starts
+**Then** when using OpenRouter: the first `field_update` event is emitted within 500ms of the initial request (NFR4 cloud SLA)
+**And** when using local Qwen: the first `field_update` event is emitted within 2 seconds of the initial request (NFR4 local SLA)
+
 All card creation endpoints must have positive, negative, and edge case tests: missing fields → 422, LLM timeout → error event, SSE complete event sequence, safety filter blocking.
 
-### Story 1.6: Card Audio Generation (TTS)
+### Story 1.8: Card Audio Generation (TTS)
 
 As a user,
 I want pronunciation audio automatically generated for each new card,
@@ -414,7 +502,7 @@ So that I can hear the correct pronunciation of new vocabulary without leaving t
 **And** the audio field displays a muted "Not available" state
 **And** card creation does not fail or roll back due to the TTS failure
 
-### Story 1.7: CardCreationPanel Component
+### Story 1.9: CardCreationPanel Component
 
 As a user,
 I want a creation input that instantly shows skeleton placeholders on Enter and reveals each card field sequentially as AI fills them,
@@ -453,7 +541,7 @@ So that card creation feels alive and fast — not like waiting for a spinner.
 
 Vitest + RTL tests must cover all 5 component states (idle, loading, populated, saving, error), keyboard flow (Enter submits, Tab navigates action buttons), and `aria-live` announcements.
 
-### Story 1.8: Service Status Indicator
+### Story 1.10: Service Status Indicator
 
 As a user,
 I want to always see which AI service is active (cloud or local fallback) in the sidebar,
@@ -485,35 +573,6 @@ So that I understand the quality and speed of AI generation at a glance without 
 **Then** the ServiceStatusIndicator appears in the Settings screen header
 
 Vitest + RTL tests must cover all 5 states (cloud-active, local-active, cloud-degraded, switching, error) plus aria-live announcement and keyboard expansion.
-
-### Story 1.9: Secure Credential Storage Foundation
-
-As a user,
-I want all API keys stored via the OS keychain (never plaintext) and all logs stripped of credential patterns,
-So that my credentials are secure even if log files or config files are examined.
-
-**Acceptance Criteria:**
-
-**Given** any API key is saved in the app
-**When** `services/credentials.py` writes it
-**Then** the `keyring` library stores it in the OS keychain (macOS Keychain, Windows Credential Locker, Linux libsecret/kwallet)
-**And** if no OS keychain is available, an encrypted file store is used as fallback
-**And** the credential is never written to SQLite, `.env` files, or any plaintext config
-
-**Given** the application produces any log output
-**When** a string matching a credential pattern is present in the data
-**Then** the `structlog` credential-scrubbing processor replaces it with `[REDACTED]` before emission
-
-**Given** an unhandled exception occurs
-**When** the Python traceback or error response is generated
-**Then** no credential values appear in the traceback, error detail, or HTTP error response
-
-**Given** any module needs to read a credential
-**Then** it must call `services/credentials.py` — no module reads from `keyring` directly
-
-**Given** `LINGOSIPS_LOG_LEVEL=DEBUG` is set
-**When** verbose logging runs
-**Then** credentials are still scrubbed — debug logging does not bypass the credential processor
 
 ## Epic 2: Vocabulary Ownership & Import
 
@@ -620,6 +679,13 @@ So that I can upgrade from local models to cloud quality without leaving the Set
 **Then** a specific error appears: "Invalid API key · Check your OpenRouter dashboard"
 **And** no credential is saved
 
+**Given** I am in Settings → Languages section
+**When** I change my native language or add/remove a target language and save
+**Then** `PATCH /settings` updates the `native_language` and `target_languages` fields in the Settings table
+**And** the deck browser filters to the newly active target language on next render
+**And** the creation panel uses the active target language for new cards
+**And** switching the active target language does not delete or hide cards from other languages
+
 **Given** I configure system-wide defaults (auto-generate audio on new cards, auto-generate images, default practice mode, cards per session)
 **When** I save
 **Then** `GET /settings` returns the updated defaults
@@ -717,8 +783,9 @@ So that visual memory hooks can strengthen my vocabulary retention.
 
 **Given** image generation completes
 **When** the image is received
-**Then** `core/safety.py` filters the image before display
-**And** if the image passes the safety check, it is stored and shown on the card
+**Then** `core/safety.py` validates the image response: `Content-Type` header must be `image/*` and the file size must not exceed 10 MB
+**And** if validation passes, the image is stored and shown on the card
+_Note: MVP image safety is limited to content-type and size validation. Perceptual hash or content-moderation checks are post-MVP. The keyword/pattern blocklist in `core/safety.py` applies only to AI-generated text fields, not to image binaries._
 
 **Given** an image fails the safety check
 **When** the filter rejects it
@@ -752,11 +819,6 @@ I want cards automatically scheduled by the FSRS algorithm and surfaced on the h
 So that I practice at scientifically optimal intervals without ever thinking about when to review.
 
 **Acceptance Criteria:**
-
-**Given** a card is created
-**When** it is first saved
-**Then** FSRS initial state is set on the card: `stability=0`, `difficulty=0`, `state=New`, `due=now`
-**And** the card appears immediately in `GET /practice/queue`
 
 **Given** `GET /practice/queue` is called
 **When** it responds
@@ -929,9 +991,10 @@ So that I get fast, accurate pronunciation feedback without requiring any cloud 
 
 **Acceptance Criteria:**
 
-**Given** `AbstractSpeechProvider` is defined
-**Then** it exposes `evaluate_pronunciation(audio: bytes, target: str, language: str) -> SyllableResult`
-**And** `SyllableResult` contains: overall correctness, per-syllable breakdown (syllable text, is_correct, confidence), and a correction message for incorrect syllables
+**Given** `AbstractSpeechProvider` is defined in Story 1.6 (including `evaluate_pronunciation()` and `SyllableResult`)
+**Then** `WhisperLocalProvider` implements `evaluate_pronunciation(audio: bytes, target: str, language: str) → SyllableResult` using `faster-whisper`
+**And** `AzureSpeechProvider` implements `evaluate_pronunciation()` using the Azure Speech pronunciation assessment API
+**And** `SyllableResult` (defined in Story 1.6) contains: `overall_correct: bool`, `syllables: list[SyllableDetail]`, `correction_message: str | None`
 
 **Given** no Azure Speech credentials are configured
 **When** `POST /practice/cards/{card_id}/speak` is called with audio bytes
@@ -1088,11 +1151,20 @@ So that I have an authoritative, data-driven picture of my language proficiency 
 **Then** the next `GET /cefr/profile` call triggers a fresh computation
 **And** the invalidation is async and non-blocking — the rating response is not delayed
 
-**Given** `GET /cefr/profile` is called when the review log has 1000+ rows
+**Given** a user is learning multiple target languages
+**When** `GET /cefr/profile?target_language={lang}` is called
+**Then** the CEFR profile is computed using only cards and reviews linked to the specified target language
+**And** vocabulary breadth, grammar coverage, and recall history are all scoped to that language
+
+**Given** `GET /cefr/profile` is called without a `target_language` query parameter
+**When** the endpoint processes the request
+**Then** a `422 Unprocessable Entity` response is returned: `{"field": "target_language", "message": "target_language is required"}`
+
+**Given** `GET /cefr/profile` is called when the review log has 1000+ rows (for the specified language)
 **When** it responds
 **Then** it returns within 500ms — aggregation uses indexed queries on `reviews.card_id` and `reviews.reviewed_at`
 
-pytest coverage: correct level assignment for seeded review data at A1/B1/C1 thresholds, null level when < 10 reviews, cache invalidation after new rating, large review log within 500ms SLA.
+pytest coverage: correct level assignment for seeded review data at A1/B1/C1 thresholds, null level when < 10 reviews, cache invalidation after new rating, large review log within 500ms SLA, 422 when target_language missing, correct language scoping when user has cards in multiple languages.
 
 ### Story 5.2: CEFR Level Display & Knowledge Profile Breakdown
 

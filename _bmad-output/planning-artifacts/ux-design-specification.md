@@ -1032,7 +1032,7 @@ Mental model mapping:
 - `space-12` / 48px — page-level vertical rhythm
 
 **Layout structure:**
-- **Desktop:** Fixed left sidebar (navigation + deck list, 240px) + main content area (fluid) — familiar two-panel tool layout
+- **Desktop:** D2 layout — 64px fixed icon sidebar + fluid main creation panel + 360px fixed right queue column (see Design Direction Decision)
 - **Mobile:** Bottom navigation bar replaces sidebar; main content fills viewport
 - **Practice session:** Full-viewport takeover — sidebar hidden, card centered, zero chrome distraction
 - **Max content width:** 720px for card creation and reading; unconstrained for dashboard data views
