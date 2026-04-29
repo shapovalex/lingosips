@@ -1,0 +1,89 @@
+# generated: 2026-04-29
+# last_updated: 2026-04-29
+# project: lingosips
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-04-29
+last_updated: 2026-04-29
+project: lingosips
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Working App & First Card
+  epic-1: backlog
+  1-1-project-initialization-dev-infrastructure: backlog
+  1-2-app-shell-design-system-foundation: backlog
+  1-3-secure-credential-storage-foundation: backlog
+  1-4-first-run-language-onboarding: backlog
+  1-5-ai-provider-abstraction-local-llm-fallback: backlog
+  1-6-speech-provider-abstraction-local-tts-fallback: backlog
+  1-7-card-creation-api-sse-streaming: backlog
+  1-8-card-audio-generation-tts: backlog
+  1-9-cardcreationpanel-component: backlog
+  1-10-service-status-indicator: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: Vocabulary Ownership & Import
+  epic-2: backlog
+  2-1-card-detail-editing-notes: backlog
+  2-2-deck-management-multi-language: backlog
+  2-3-service-configuration-system-defaults: backlog
+  2-4-import-pipeline-anki-text-url: backlog
+  2-5-deck-export-import-lingosips-format: backlog
+  2-6-per-card-image-generation: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Practice Loop & Progress Tracking
+  epic-3: backlog
+  3-1-fsrs-scheduling-engine-practice-queue: backlog
+  3-2-self-assess-practice-mode: backlog
+  3-3-write-mode-with-ai-feedback: backlog
+  3-4-sentence-collocation-practice: backlog
+  3-5-progress-dashboard-session-stats: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Speak Mode & Pronunciation Mastery
+  epic-4: backlog
+  4-1-speech-evaluation-api-whisper-azure-speech: backlog
+  4-2-syllablefeedback-component: backlog
+  4-3-speak-mode-practice-session: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: CEFR Learner Intelligence
+  epic-5: backlog
+  5-1-cefr-profile-computation-engine: backlog
+  5-2-cefr-level-display-knowledge-profile-breakdown: backlog
+  epic-5-retrospective: optional
