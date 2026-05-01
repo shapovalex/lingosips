@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test"
+import { completeOnboarding } from "../fixtures/index"
 
 /**
  * App Shell E2E Tests — Story 1.2
@@ -12,11 +13,18 @@ import { test, expect } from "@playwright/test"
  * AC5: Focus ring indigo-500 visible on focused elements
  * AC7: "Skip to main content" is first focusable element
  * AC8: Time to interactive < 2000ms
+ *
+ * Updated in Story 1.4: completeOnboarding() called in beforeEach for all
+ * test groups so the onboarding wizard does not block app-shell assertions.
  */
 
 // ─── Desktop layout ───────────────────────────────────────────────────────────
 test.describe("App Shell — Desktop (1280×800)", () => {
   test.use({ viewport: { width: 1280, height: 800 } })
+
+  test.beforeEach(async ({ page }) => {
+    await completeOnboarding(page)
+  })
 
   test("AC1: D2 layout renders — icon sidebar, main content area, right column", async ({
     page,
@@ -58,8 +66,10 @@ test.describe("App Shell — Desktop (1280×800)", () => {
 
   test("AC7: Skip link is the first focusable element", async ({ page }) => {
     await page.goto("/")
+    // Wait for app shell — settings query must complete before Tab (AC7 timing fix)
+    await page.waitForSelector('nav[aria-label="Main navigation"]')
 
-    // Tab once — should land on skip link
+    // Tab once — should land on skip link (it is the first DOM element)
     await page.keyboard.press("Tab")
     const focusedText = await page.evaluate(() => document.activeElement?.textContent)
     expect(focusedText).toContain("Skip to main content")
@@ -69,6 +79,8 @@ test.describe("App Shell — Desktop (1280×800)", () => {
     page,
   }) => {
     await page.goto("/")
+    // Wait for app shell to fully render before Tab sequence
+    await page.waitForSelector('nav[aria-label="Main navigation"]')
     await page.keyboard.press("Tab") // Skip link
     await page.keyboard.press("Tab") // First nav item in icon sidebar or main
     const focusedTag = await page.evaluate(() => document.activeElement?.tagName)
@@ -80,6 +92,8 @@ test.describe("App Shell — Desktop (1280×800)", () => {
     page,
   }) => {
     await page.goto("/")
+    // Wait for app shell before testing focus
+    await page.waitForSelector('nav[aria-label="Main navigation"]')
 
     // Tab to skip link (first focusable element)
     await page.keyboard.press("Tab")
@@ -113,6 +127,10 @@ test.describe("App Shell — Desktop (1280×800)", () => {
 // ─── Mobile layout ────────────────────────────────────────────────────────────
 test.describe("App Shell — Mobile (375×812)", () => {
   test.use({ viewport: { width: 375, height: 812 } })
+
+  test.beforeEach(async ({ page }) => {
+    await completeOnboarding(page)
+  })
 
   test("AC4: Bottom nav replaces icon sidebar on mobile", async ({ page }) => {
     await page.goto("/")
@@ -160,6 +178,8 @@ test.describe("App Shell — Mobile (375×812)", () => {
 
   test("AC7: Skip link is first focusable element on mobile too", async ({ page }) => {
     await page.goto("/")
+    // Wait for app shell — settings query must complete before Tab (AC7 timing fix)
+    await page.waitForSelector('nav[aria-label="Bottom navigation"]')
     await page.keyboard.press("Tab")
     const focusedText = await page.evaluate(() => document.activeElement?.textContent)
     expect(focusedText).toContain("Skip to main content")

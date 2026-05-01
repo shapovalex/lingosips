@@ -24,3 +24,20 @@ export async function assertServerHealthy(page: Page): Promise<void> {
   const body = await response.json()
   expect(body.status).toBe("ok")
 }
+
+/**
+ * Complete onboarding via API so tests that need the main app shell can bypass
+ * the first-run wizard (Story 1.4).
+ *
+ * Call in beforeEach for any test that navigates to "/" and expects the app
+ * shell (sidebar, bottom nav, etc.) to be visible.
+ */
+export async function completeOnboarding(page: Page): Promise<void> {
+  await page.request.put("http://localhost:7842/settings", {
+    data: {
+      native_language: "en",
+      active_target_language: "es",
+      onboarding_completed: true,
+    },
+  })
+}

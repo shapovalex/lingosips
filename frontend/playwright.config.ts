@@ -11,7 +11,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // All E2E tests share a real SQLite DB — parallel execution causes state
+  // interference between completeOnboarding() and resetOnboarding() calls.
+  // Use 1 worker to serialize tests in both CI and local environments.
+  workers: 1,
   reporter: "html",
   use: {
     baseURL: "http://localhost:7842",

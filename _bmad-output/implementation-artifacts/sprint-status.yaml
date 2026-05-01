@@ -47,7 +47,7 @@ development_status:
   1-1-project-initialization-dev-infrastructure: review
   1-2-app-shell-design-system-foundation: done
   1-3-secure-credential-storage-foundation: done
-  1-4-first-run-language-onboarding: backlog
+  1-4-first-run-language-onboarding: done
   1-5-ai-provider-abstraction-local-llm-fallback: backlog
   1-6-speech-provider-abstraction-local-tts-fallback: backlog
   1-7-card-creation-api-sse-streaming: backlog

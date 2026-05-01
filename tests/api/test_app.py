@@ -220,9 +220,13 @@ class TestSPAFallback:
     """SPA routing: 404s for browser navigation return index.html; API 404s stay JSON."""
 
     async def test_browser_404_serves_index_html(self, client: AsyncClient) -> None:
-        """GET /settings with Accept: text/html returns 200 index.html for React routing."""
+        """GET /nonexistent-page with Accept: text/html returns 200 index.html for React routing.
+
+        Note: /settings now exists as a real API endpoint (Story 1.4) — using a different
+        non-existent route to verify the SPA fallback behaviour.
+        """
         response = await client.get(
-            "/settings", headers={"accept": "text/html,application/xhtml+xml,*/*"}
+            "/react-client-route", headers={"accept": "text/html,application/xhtml+xml,*/*"}
         )
         assert response.status_code == 200
         assert "text/html" in response.headers.get("content-type", ""), (

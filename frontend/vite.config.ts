@@ -22,6 +22,10 @@ export default defineConfig({
         target: "http://127.0.0.1:7842",
         changeOrigin: true,
       },
+      "/settings": {
+        target: "http://127.0.0.1:7842",
+        changeOrigin: true,
+      },
       "/openapi.json": {
         target: "http://127.0.0.1:7842",
         changeOrigin: true,
