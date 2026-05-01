@@ -61,6 +61,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    from lingosips.api.models import router as models_router
     from lingosips.api.settings import router as settings_router
 
     application = FastAPI(
@@ -120,7 +121,9 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     # Domain routers — register after health, before static mount
+    # Registration order: health → settings → models → static files mount last
     application.include_router(settings_router, prefix="/settings", tags=["settings"])
+    application.include_router(models_router, prefix="/models", tags=["models"])
 
     # Mount static files for production (only when static dir has compiled frontend content)
     if STATIC_DIR.exists() and any(STATIC_DIR.iterdir()):

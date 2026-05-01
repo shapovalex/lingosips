@@ -7,3 +7,21 @@
 - **`target_languages` not synced with `active_target_language`** — When `active_target_language` changes via `PUT /settings`, the `target_languages` JSON list is not updated. These are distinct concepts (`target_languages` = all languages ever learned; `active_target_language` = current one), so this is by design for now. Future story implementing multi-language deck management (Story 2.2) should reconcile these fields.
 
 - **`api.d.ts` 422 response type is `HTTPValidationError`** — FastAPI's OpenAPI schema declares 422 as `HTTPValidationError` for all endpoints, but `PUT /settings` actually returns a custom RFC 7807 Problem Detail dict for invalid language codes. The generated type is misleading. Fix: add `responses={422: {"model": ProblemDetail}}` to the `@router.put` decorator and create a `ProblemDetail` Pydantic model. Not a runtime bug since the wizard's `onError` handler receives the error as an `Error` object, not the typed response body.
+
+## Deferred from: code review of 1-5-ai-provider-abstraction-local-llm-fallback (2026-05-01)
+
+- **T2.7 `get_download_progress` missing on `ModelManager`** — Spec required an `async get_download_progress(job_id, session)` method on `ModelManager` (T2.7). The implementation inlined equivalent polling logic directly in `api/models.py`. Behavior is equivalent, but the `ModelManager` contract is incomplete. Refactor to extract the method if a second consumer needs it. File: `src/lingosips/services/models/manager.py`
+
+- **AC4 `Depends(get_llm_provider)` not wired to any router** — Story 1.5 AC4 states the provider must always be resolved via `FastAPI Depends(get_llm_provider)` in routers. No router uses it yet — deferred to Story 1.7 (`api/cards.py`).
+
+- **TOCTOU in `_get_llm`: file deleted between `exists()` and `Llama()` construction** — `model_path.exists()` passes, then the file is deleted before `Llama(model_path=…)` executes, raising an opaque native exception instead of `LLMModelNotReadyError`. Wrap the `Llama()` instantiation in a try/except. Extreme edge case; deferred MVP. File: `src/lingosips/services/llm/qwen_local.py:27`
+
+- **`progress_done` reset to 0 on failure wipes real progress** — `_update_job(0, 0, …, "failed")` in the download exception handler loses the bytes-downloaded context. Consider preserving the last-known `done`/`total` values. In `# pragma: no cover` path. File: `src/lingosips/services/models/manager.py:140`
+
+- **`is_ready()` no integrity check** — Only checks file existence and non-zero size. A corrupt or partial GGUF file passes the check. Consider adding size validation against the expected model size. Out of MVP scope.
+
+- **SSE holds long-lived SQLAlchemy session** — `_model_download_sse` holds the `AsyncSession` open for potentially many minutes (entire download duration). Sessions are not designed as long-lived objects; idle timeout can cause disconnects. MVP acceptable; consider periodic session refresh or a separate session per poll for production. File: `src/lingosips/api/models.py`
+
+- **No auth on `/models/status` and `/models/download/progress`** — Any unauthenticated caller can trigger a multi-GB download. No auth system exists in MVP. Add rate-limiting or auth in a future security hardening story.
+
+- **`_qwen_provider` singleton never invalidated if model path changes** — Once set, `_qwen_provider` in `registry.py` is cached forever. If the model filename changes (future settings API), the stale provider is returned. Add invalidation logic when Story 2.3 (Service Configuration) lands. File: `src/lingosips/services/registry.py`

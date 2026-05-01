@@ -23,6 +23,7 @@ KEYRING_SERVICE = "lingosips"
 # ── Credential key constants — used by all modules that touch external services ─
 
 OPENROUTER_API_KEY = "openrouter_api_key"
+OPENROUTER_MODEL = "openrouter_model"  # read-only in Story 1.5; set in Story 2.3
 AZURE_SPEECH_KEY = "azure_speech_key"
 AZURE_SPEECH_REGION = "azure_speech_region"
 IMAGE_ENDPOINT_URL = "image_endpoint_url"
