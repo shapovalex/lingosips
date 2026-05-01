@@ -202,6 +202,21 @@ export function AIServicePanel() {
           </div>
 
           <div>
+            <p className="text-xs text-zinc-500 mb-2">
+              {"Don't have an account? "}
+              <a
+                href="https://openrouter.ai/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:text-blue-300 underline"
+                aria-label="Sign up for OpenRouter (opens in new tab)"
+              >
+                Sign up for OpenRouter
+              </a>
+            </p>
+          </div>
+
+          <div>
             <label
               htmlFor="openrouter-api-key"
               className="block text-xs font-medium text-zinc-400 mb-1"

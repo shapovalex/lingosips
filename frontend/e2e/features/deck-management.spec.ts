@@ -33,7 +33,7 @@ test.describe("Deck Management", () => {
       data: {
         native_language: "en",
         active_target_language: "fr",
-        target_languages: '["es","fr"]',
+        target_languages: ["es", "fr"],
         onboarding_completed: true,
       },
     })
@@ -90,8 +90,8 @@ test.describe("Deck Management", () => {
     // Click the rename button
     await page.getByRole("button", { name: new RegExp(`rename ${originalName}`, "i") }).click()
 
-    // Inline rename input should appear pre-filled with the current name
-    const renameInput = page.getByDisplayValue(originalName)
+    // Inline rename input should appear — DeckCard gives it aria-label="Rename {name}"
+    const renameInput = page.getByRole("textbox", { name: new RegExp(`Rename ${originalName}`, "i") })
     await expect(renameInput).toBeVisible({ timeout: 3000 })
     await renameInput.clear()
     await renameInput.fill(updatedName)
@@ -156,8 +156,10 @@ test.describe("Deck Management", () => {
     await page.goto("/decks")
     await expect(page.getByText(deckName)).toBeVisible({ timeout: 5000 })
 
-    // Card count badge "1 cards" should be visible within the deck card
-    await expect(page.getByText(/1 card/i)).toBeVisible({ timeout: 5000 })
+    // Card count badge "1 cards" should be visible within the specific deck card
+    // Scope to the deck card to avoid strict mode violations from other decks
+    const deckCardLocator = page.getByRole("link", { name: new RegExp(deckName, "i") })
+    await expect(deckCardLocator.getByText(/1 card/i)).toBeVisible({ timeout: 5000 })
   })
 
   // ── AC1: Filter decks by name (client-side) ────────────────────────────────

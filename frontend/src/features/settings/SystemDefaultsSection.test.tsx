@@ -8,6 +8,7 @@
 
 import React from "react"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { SystemDefaultsSection } from "./SystemDefaultsSection"
@@ -106,20 +107,87 @@ describe("SystemDefaultsSection", () => {
     })
   })
 
-  it("Save calls PUT /settings", async () => {
+  it("Save is disabled when no fields have changed (dirty tracking)", async () => {
     render(
       <Wrapper>
         <SystemDefaultsSection />
       </Wrapper>
     )
+    // Wait for settings to load and form to sync
     await waitFor(() => {
-      const text = document.body.textContent ?? ""
-      expect(text).toMatch(/audio|image|session/i)
+      expect(screen.getByRole("button", { name: /save/i })).toBeDisabled()
     })
-    const saveBtn = screen.getByRole("button", { name: /save/i })
-    fireEvent.click(saveBtn)
+  })
+
+  it("Save becomes enabled after changing a field", async () => {
+    const user = userEvent.setup()
+    render(
+      <Wrapper>
+        <SystemDefaultsSection />
+      </Wrapper>
+    )
+    // Wait for settings to load — confirmed when Save is disabled (isDirty=false)
     await waitFor(() => {
-      expect(vi.mocked(put)).toHaveBeenCalledWith("/settings", expect.any(Object))
+      expect(screen.getByRole("button", { name: /save/i })).toBeDisabled()
+    })
+    // Toggle the audio switch (MOCK has auto_generate_audio=true → click → false)
+    const audioSwitch = screen.getByLabelText("Auto-generate audio")
+    await user.click(audioSwitch)
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save/i })).not.toBeDisabled()
+    })
+  })
+
+  it("'Unsaved changes' indicator appears when form is dirty", async () => {
+    const user = userEvent.setup()
+    render(
+      <Wrapper>
+        <SystemDefaultsSection />
+      </Wrapper>
+    )
+    // Wait for settings to load first
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save/i })).toBeDisabled()
+    })
+    // Toggle the audio switch (MOCK has auto_generate_audio=true → click → false)
+    const audioSwitch = screen.getByLabelText("Auto-generate audio")
+    await user.click(audioSwitch)
+    await waitFor(() => {
+      expect(screen.getByText(/unsaved changes/i)).toBeInTheDocument()
+    })
+  })
+
+  it("Save calls PUT /settings with ONLY dirty fields", async () => {
+    const user = userEvent.setup()
+    render(
+      <Wrapper>
+        <SystemDefaultsSection />
+      </Wrapper>
+    )
+    // Wait for settings to load (button disabled = settings loaded, isDirty=false)
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save/i })).toBeDisabled()
+    })
+    // Toggle only auto_generate_audio — all other fields stay at MOCK values
+    // MOCK: auto_generate_audio=true → click → false
+    const audioSwitch = screen.getByLabelText("Auto-generate audio")
+    await user.click(audioSwitch)
+    // Wait for Save to become enabled
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save/i })).not.toBeDisabled()
+    })
+    await user.click(screen.getByRole("button", { name: /save/i }))
+    await waitFor(() => {
+      expect(vi.mocked(put)).toHaveBeenCalledWith(
+        "/settings",
+        // Only the changed field should be sent
+        expect.objectContaining({ auto_generate_audio: false })
+      )
+      // Unchanged fields should NOT be in the payload
+      const callArg = vi.mocked(put).mock.calls[0][1] as Record<string, unknown>
+      expect(callArg).not.toHaveProperty("auto_generate_images")
+      expect(callArg).not.toHaveProperty("default_practice_mode")
+      expect(callArg).not.toHaveProperty("cards_per_session")
     })
   })
 })

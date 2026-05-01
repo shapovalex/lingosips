@@ -135,8 +135,6 @@ async def delete_deck(deck_id: int, session: AsyncSession) -> None:
     """
     deck = await get_deck(deck_id, session)
     # Null out deck_id on all cards in this deck (cards remain in collection)
-    await session.execute(
-        sql_update(Card).where(Card.deck_id == deck_id).values(deck_id=None)
-    )
+    await session.execute(sql_update(Card).where(Card.deck_id == deck_id).values(deck_id=None))
     await session.delete(deck)
     await session.commit()

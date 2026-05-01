@@ -28,11 +28,11 @@ test.describe("Card Management — Card Detail", () => {
     // Navigate to card detail page
     await page.goto(`/cards/${cardId}`)
 
-    // Target word should be visible
-    await expect(page.getByText("prueba")).toBeVisible({ timeout: 5000 })
+    // Target word should be visible as the page heading
+    await expect(page.getByRole("heading", { name: "prueba" })).toBeVisible({ timeout: 5000 })
 
-    // Language + card type info should be visible
-    await expect(page.locator("text=es")).toBeVisible()
+    // Language + card type info: rendered as "es · word" in metadata line
+    await expect(page.getByText(/\bes\s*·/)).toBeVisible()
 
     // FSRS status visible for new card
     await expect(page.getByText("Not yet practiced")).toBeVisible()
@@ -48,7 +48,7 @@ test.describe("Card Management — Card Detail", () => {
     await page.goto(`/cards/${cardId}`)
 
     // Wait for card to load
-    await page.getByText("prueba").waitFor({ timeout: 5000 })
+    await page.getByRole("heading", { name: "prueba" }).waitFor({ timeout: 5000 })
 
     // Find and click the translation display field
     const translationField = page.getByRole("button", { name: /translation/i })
@@ -75,7 +75,7 @@ test.describe("Card Management — Card Detail", () => {
     const cardId = await createSeedCard(page.request)
     await page.goto(`/cards/${cardId}`)
 
-    await page.getByText("prueba").waitFor({ timeout: 5000 })
+    await page.getByRole("heading", { name: "prueba" }).waitFor({ timeout: 5000 })
 
     // Click on the personal note area
     const noteField = page.getByRole("button", { name: /personal note/i })
@@ -101,7 +101,7 @@ test.describe("Card Management — Card Detail", () => {
     const cardId = await createSeedCard(page.request)
     await page.goto(`/cards/${cardId}`)
 
-    await page.getByText("prueba").waitFor({ timeout: 5000 })
+    await page.getByRole("heading", { name: "prueba" }).waitFor({ timeout: 5000 })
 
     // Click Delete card button
     await page.getByRole("button", { name: /delete card/i }).click()
@@ -126,7 +126,7 @@ test.describe("Card Management — Card Detail", () => {
     const cardId = await createSeedCard(page.request)
     await page.goto(`/cards/${cardId}`)
 
-    await page.getByText("prueba").waitFor({ timeout: 5000 })
+    await page.getByRole("heading", { name: "prueba" }).waitFor({ timeout: 5000 })
 
     // Click Delete card button
     await page.getByRole("button", { name: /delete card/i }).click()
@@ -139,8 +139,8 @@ test.describe("Card Management — Card Detail", () => {
     // Click Cancel
     await page.getByRole("button", { name: /cancel/i }).click()
 
-    // Dialog should close — card still accessible
-    await expect(page.getByText("prueba")).toBeVisible()
+    // Dialog should close — card still accessible (heading still visible)
+    await expect(page.getByRole("heading", { name: "prueba" })).toBeVisible()
 
     // Verify card still exists in API
     const apiResponse = await page.request.get(`http://localhost:7842/cards/${cardId}`)
@@ -153,7 +153,7 @@ test.describe("Card Management — Card Detail", () => {
     const cardId = await createSeedCard(page.request)
     await page.goto(`/cards/${cardId}`)
 
-    await page.getByText("prueba").waitFor({ timeout: 5000 })
+    await page.getByRole("heading", { name: "prueba" }).waitFor({ timeout: 5000 })
 
     // Tab through the page to verify focus ring appears on interactive elements
     await page.keyboard.press("Tab")

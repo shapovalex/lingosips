@@ -39,6 +39,7 @@ class DeckCreateRequest(BaseModel):
 _VALID_OVERRIDE_KEYS = frozenset(
     {"auto_generate_audio", "auto_generate_images", "default_practice_mode", "cards_per_session"}
 )
+_VALID_PRACTICE_MODES = frozenset({"self_assess", "write", "speak"})
 
 
 class DeckUpdateRequest(BaseModel):
@@ -48,7 +49,7 @@ class DeckUpdateRequest(BaseModel):
     @field_validator("settings_overrides")
     @classmethod
     def validate_override_keys(cls, v: dict | None) -> dict | None:
-        """Reject any key not in the allowed set."""
+        """Reject unknown keys and invalid value types in settings_overrides."""
         if v is None:
             return v
         invalid = set(v.keys()) - _VALID_OVERRIDE_KEYS
@@ -56,6 +57,20 @@ class DeckUpdateRequest(BaseModel):
             raise ValueError(
                 f"Invalid settings_overrides keys: {invalid}. Allowed: {_VALID_OVERRIDE_KEYS}"
             )
+        # Validate value types for each known key
+        if "auto_generate_audio" in v and not isinstance(v["auto_generate_audio"], bool):
+            raise ValueError("auto_generate_audio must be a boolean")
+        if "auto_generate_images" in v and not isinstance(v["auto_generate_images"], bool):
+            raise ValueError("auto_generate_images must be a boolean")
+        if "default_practice_mode" in v:
+            if v["default_practice_mode"] not in _VALID_PRACTICE_MODES:
+                raise ValueError(f"default_practice_mode must be one of: {_VALID_PRACTICE_MODES}")
+        if "cards_per_session" in v:
+            val = v["cards_per_session"]
+            if not isinstance(val, int) or isinstance(val, bool):
+                raise ValueError("cards_per_session must be an integer")
+            if not (1 <= val <= 100):
+                raise ValueError("cards_per_session must be between 1 and 100")
         return v
 
 

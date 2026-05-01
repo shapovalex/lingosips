@@ -99,6 +99,23 @@ describe("AIServicePanel", () => {
     expect(screen.getByLabelText(/api key/i)).toBeInTheDocument()
   })
 
+  it("form shows OpenRouter signup link (AC1)", async () => {
+    vi.mocked(get).mockResolvedValue({
+      llm: { provider: "qwen_local", model: null },
+      speech: { provider: "pyttsx3" },
+    })
+    render(
+      <Wrapper>
+        <AIServicePanel />
+      </Wrapper>
+    )
+    const upgradeBtn = await screen.findByRole("button", { name: /upgrade/i })
+    fireEvent.click(upgradeBtn)
+    const signupLink = screen.getByRole("link", { name: /sign up for openrouter/i })
+    expect(signupLink).toBeInTheDocument()
+    expect(signupLink).toHaveAttribute("href", "https://openrouter.ai/keys")
+  })
+
   it("api_key input has type='password'", async () => {
     vi.mocked(get).mockResolvedValue({
       llm: { provider: "qwen_local", model: null },

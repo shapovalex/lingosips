@@ -223,7 +223,6 @@ class TestInvalidateProviderCache:
     def test_resets_qwen_provider_singleton(self):
         """invalidate_provider_cache() sets _qwen_provider to None."""
         import lingosips.services.registry as reg
-
         from lingosips.services.registry import invalidate_provider_cache
 
         # Inject a sentinel value so we know it was non-None before
@@ -237,7 +236,6 @@ class TestInvalidateProviderCache:
     def test_resets_pyttsx3_provider_singleton(self):
         """invalidate_provider_cache() sets _pyttsx3_provider to None."""
         import lingosips.services.registry as reg
-
         from lingosips.services.registry import invalidate_provider_cache
 
         sentinel = object()
@@ -250,7 +248,6 @@ class TestInvalidateProviderCache:
     def test_idempotent_when_already_none(self):
         """Calling invalidate_provider_cache() when singletons are already None is safe."""
         import lingosips.services.registry as reg
-
         from lingosips.services.registry import invalidate_provider_cache
 
         reg._qwen_provider = None

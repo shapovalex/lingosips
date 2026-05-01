@@ -145,9 +145,7 @@ async def test_connection(
                 ),
                 timeout=15.0,
             )
-            return ConnectionTestResponse(
-                success=True, sample_translation=result.strip()[:100]
-            )
+            return ConnectionTestResponse(success=True, sample_translation=result.strip()[:100])
         except TimeoutError:
             return ConnectionTestResponse(
                 success=False,
@@ -204,9 +202,7 @@ async def test_connection(
                 asyncio.to_thread(provider_az.synthesize, "hello", "es"),
                 timeout=10.0,
             )
-            return ConnectionTestResponse(
-                success=True, sample_translation="Azure Speech connected"
-            )
+            return ConnectionTestResponse(success=True, sample_translation="Azure Speech connected")
         except TimeoutError:
             return ConnectionTestResponse(
                 success=False,
@@ -219,9 +215,7 @@ async def test_connection(
                 return ConnectionTestResponse(
                     success=False,
                     error_code="invalid_api_key",
-                    error_message=(
-                        "Invalid Azure Speech credentials · Check key and region"
-                    ),
+                    error_message=("Invalid Azure Speech credentials · Check key and region"),
                 )
             return ConnectionTestResponse(
                 success=False,
@@ -245,7 +239,7 @@ async def test_connection(
             headers["Authorization"] = f"Bearer {request.endpoint_key}"
         async with httpx.AsyncClient(timeout=10.0) as client_http:
             resp = await client_http.get(
-                request.endpoint_url + "/models", headers=headers
+                request.endpoint_url.rstrip("/") + "/models", headers=headers
             )
         if resp.status_code in (200, 404):  # 404 is OK — endpoint reachable
             return ConnectionTestResponse(
@@ -344,10 +338,7 @@ async def remove_credentials(provider: str) -> Response:
             status_code=422,
             detail={
                 "type": "/errors/validation",
-                "title": (
-                    f"Unknown provider '{provider}'. "
-                    "Must be: openrouter, azure, image"
-                ),
+                "title": (f"Unknown provider '{provider}'. Must be: openrouter, azure, image"),
                 "status": 422,
             },
         )

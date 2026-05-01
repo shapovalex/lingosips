@@ -47,6 +47,7 @@ export function SystemDefaultsSection() {
   const [defaultPracticeMode, setDefaultPracticeMode] = useState<PracticeMode>("self_assess")
   const [cardsPerSession, setCardsPerSession] = useState(20)
 
+  // Sync local state from query data (reset dirty state on fresh data)
   useEffect(() => {
     if (settings) {
       setAutoGenerateAudio(settings.auto_generate_audio)
@@ -56,14 +57,37 @@ export function SystemDefaultsSection() {
     }
   }, [settings])
 
-  const saveMutation = useMutation({
-    mutationFn: () =>
-      put<SettingsResponse>("/settings", {
+  // Compute dirty fields — only send fields that differ from persisted values
+  const dirtyFields = (): Partial<{
+    auto_generate_audio: boolean
+    auto_generate_images: boolean
+    default_practice_mode: string
+    cards_per_session: number
+  }> => {
+    const dirty: Record<string, boolean | string | number> = {}
+    if (!settings) {
+      return {
         auto_generate_audio: autoGenerateAudio,
         auto_generate_images: autoGenerateImages,
         default_practice_mode: defaultPracticeMode,
         cards_per_session: cardsPerSession,
-      }),
+      }
+    }
+    if (autoGenerateAudio !== settings.auto_generate_audio)
+      dirty.auto_generate_audio = autoGenerateAudio
+    if (autoGenerateImages !== settings.auto_generate_images)
+      dirty.auto_generate_images = autoGenerateImages
+    if (defaultPracticeMode !== settings.default_practice_mode)
+      dirty.default_practice_mode = defaultPracticeMode
+    if (cardsPerSession !== settings.cards_per_session)
+      dirty.cards_per_session = cardsPerSession
+    return dirty
+  }
+
+  const isDirty = settings != null && Object.keys(dirtyFields()).length > 0
+
+  const saveMutation = useMutation({
+    mutationFn: () => put<SettingsResponse>("/settings", dirtyFields()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] })
     },
@@ -156,14 +180,19 @@ export function SystemDefaultsSection() {
         />
       </div>
 
-      <button
-        type="button"
-        onClick={() => saveMutation.mutate()}
-        disabled={saveMutation.isPending}
-        className="rounded bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-600 disabled:opacity-50"
-      >
-        {saveMutation.isPending ? "Saving…" : "Save"}
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => saveMutation.mutate()}
+          disabled={saveMutation.isPending || !isDirty}
+          className="rounded bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-600 disabled:opacity-50"
+        >
+          {saveMutation.isPending ? "Saving…" : "Save"}
+        </button>
+        {isDirty && !saveMutation.isPending && (
+          <span className="text-xs text-amber-400">Unsaved changes</span>
+        )}
+      </div>
     </div>
   )
 }

@@ -23,7 +23,12 @@ import structlog
 # Exported as a public constant so api/app.py can import them for response scrubbing
 # rather than maintaining a duplicate list that could drift.
 CREDENTIAL_PATTERNS = [
-    re.compile(r"(api[_-]?key|apikey|password|passwd|secret|token)[=:\s\"']+\S+", re.IGNORECASE),
+    # Require = or : separator before the value so plain-English phrases like
+    # "api_key and model required" are NOT redacted (false-positive guard).
+    re.compile(
+        r"(api[_-]?key|apikey|password|passwd|secret|token)[\"']?[=:][\"']?\s*\S+",
+        re.IGNORECASE,
+    ),
     re.compile(r"sk-[A-Za-z0-9]+"),  # OpenAI/OpenRouter style keys
     re.compile(r"Bearer\s+\S+", re.IGNORECASE),
 ]

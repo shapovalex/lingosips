@@ -33,18 +33,22 @@ class TestCoreDecksList:
         session.add(deck)
         await session.flush()
 
-        session.add(Card(
-            target_word="word1",
-            target_language="es",
-            deck_id=deck.id,
-            due=now - timedelta(hours=1),
-        ))
-        session.add(Card(
-            target_word="word2",
-            target_language="es",
-            deck_id=deck.id,
-            due=now + timedelta(days=3),
-        ))
+        session.add(
+            Card(
+                target_word="word1",
+                target_language="es",
+                deck_id=deck.id,
+                due=now - timedelta(hours=1),
+            )
+        )
+        session.add(
+            Card(
+                target_word="word2",
+                target_language="es",
+                deck_id=deck.id,
+                due=now + timedelta(days=3),
+            )
+        )
         await session.commit()
 
         rows = await core_decks.list_decks(session, "es")

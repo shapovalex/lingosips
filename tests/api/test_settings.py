@@ -7,6 +7,8 @@ Test isolation: settings table must be empty for tests that require no pre-exist
 A truncate_settings autouse fixture is applied to both test classes.
 """
 
+import json
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
@@ -187,23 +189,18 @@ class TestPutSettings:
         assert get_resp.json()["onboarding_completed"] is False
 
     async def test_put_settings_updates_target_languages(self, client: AsyncClient) -> None:
-        """T1.1: PUT {"target_languages": ["es", "fr"]} → 200; response target_languages == '["es", "fr"]'."""
-        response = await client.put(
-            "/settings", json={"target_languages": ["es", "fr"]}
-        )
+        """T1.1: PUT target_languages=["es","fr"] → 200; response parses to list."""
+        response = await client.put("/settings", json={"target_languages": ["es", "fr"]})
         assert response.status_code == 200
         body = response.json()
-        import json as _json
-        langs = _json.loads(body["target_languages"])
+        langs = json.loads(body["target_languages"])
         assert langs == ["es", "fr"]
 
     async def test_put_settings_target_languages_invalid_code_returns_422(
         self, client: AsyncClient
     ) -> None:
-        """T1.1: PUT with invalid language code 'xx' → 422 RFC 7807 with /errors/invalid-language."""
-        response = await client.put(
-            "/settings", json={"target_languages": ["es", "xx"]}
-        )
+        """T1.1: PUT invalid language code 'xx' → 422 RFC 7807 /errors/invalid-language."""
+        response = await client.put("/settings", json={"target_languages": ["es", "xx"]})
         assert response.status_code == 422
         body = response.json()
         assert body["type"] == "/errors/invalid-language"
@@ -230,14 +227,11 @@ class TestPutSettings:
             },
         )
         # Update only target_languages
-        response = await client.put(
-            "/settings", json={"target_languages": ["es", "de"]}
-        )
+        response = await client.put("/settings", json={"target_languages": ["es", "de"]})
         assert response.status_code == 200
         body = response.json()
         # target_languages updated
-        import json as _json
-        assert _json.loads(body["target_languages"]) == ["es", "de"]
+        assert json.loads(body["target_languages"]) == ["es", "de"]
         # Other fields preserved
         assert body["native_language"] == "en"
         assert body["active_target_language"] == "es"

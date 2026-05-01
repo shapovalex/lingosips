@@ -79,6 +79,22 @@ class TestCredentialScrubbing:
         assert result["event"] == "User logged in successfully"
         assert result["user_id"] == 42
 
+    def test_api_key_field_name_in_error_message_not_redacted(self) -> None:
+        """Field names like 'api_key' in plain-English error messages must NOT be redacted.
+
+        Regression: pattern '[=:\\s\\"\\']+ was too broad — matched 'api_key and' because
+        \\s matched the space, turning 'api_key and model required' into '[REDACTED]...'.
+        Fix: require = or : separator before the value.
+        """
+        from lingosips.core.logging import _scrub_credentials
+
+        message = "api_key and model required for openrouter"
+        event_dict = {"event": "validation_error", "title": message}
+        result = _scrub_credentials(None, None, event_dict)
+        assert result["title"] == message, (
+            f"Plain-English field names must not be redacted. Got: {result['title']!r}"
+        )
+
     def test_non_string_values_not_modified(self) -> None:
         """Non-string values in event dict are not modified."""
         from lingosips.core.logging import _scrub_credentials

@@ -257,6 +257,28 @@ class TestSPAFallback:
         )
         assert response.status_code == 200
 
+    async def test_card_detail_route_serves_spa(self, client: AsyncClient) -> None:
+        """GET /cards/{id} with browser Accept serves index.html — not the API JSON.
+
+        Regression: /cards/{id} matches the GET /cards/{card_id} API endpoint, which
+        returns JSON even for browser navigations. The SPA middleware pattern-match for
+        r'^/cards/\\d+$' ensures React's TanStack Router gets to render CardDetail.
+        """
+        response = await client.get(
+            "/cards/1", headers={"accept": "text/html,application/xhtml+xml,*/*"}
+        )
+        assert response.status_code == 200
+        assert "text/html" in response.headers.get("content-type", "")
+
+    async def test_card_api_call_bypasses_spa(self, client: AsyncClient) -> None:
+        """GET /cards/{id} with Accept: application/json still returns API JSON."""
+        response = await client.get(
+            "/cards/9999", headers={"accept": "application/json"}
+        )
+        # Returns 404 JSON (card not found), not HTML
+        assert response.status_code == 404
+        assert "application/problem+json" in response.headers.get("content-type", "")
+
 
 class TestServerBinding:
     async def test_health_endpoint_accessible(self, client: AsyncClient) -> None:

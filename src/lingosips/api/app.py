@@ -1,6 +1,7 @@
 """FastAPI application factory for lingosips."""
 
 import os
+import re
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -82,16 +83,25 @@ def create_app() -> FastAPI:
     # TanStack Router handles the client-side route instead of the API returning JSON.
     # API fetch calls from client.ts always send Accept: application/json, so they
     # bypass this handler and continue to the router normally.
-    _spa_routes = {"/settings", "/practice", "/import", "/progress", "/decks"}
+    _spa_routes_exact = {"/settings", "/practice", "/import", "/progress", "/decks"}
+    # Pattern routes: card and deck detail pages share path prefixes with API routes.
+    # /cards/{id} → TanStack Router CardDetail (conflicts with GET /cards/{card_id}).
+    _spa_route_patterns = [
+        re.compile(r"^/cards/\d+$"),
+    ]
 
     @application.middleware("http")
     async def spa_fallback_middleware(request: Request, call_next: Callable[..., Any]) -> Any:
         """Serve index.html for browser navigations to SPA routes that overlap with API paths."""
         index_html = STATIC_DIR / "index.html"
         accept = request.headers.get("accept", "")
+        path = request.url.path
+        is_spa_route = path in _spa_routes_exact or any(
+            p.match(path) for p in _spa_route_patterns
+        )
         if (
             request.method == "GET"
-            and request.url.path in _spa_routes
+            and is_spa_route
             and "text/html" in accept
             and index_html.exists()
         ):

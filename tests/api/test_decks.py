@@ -12,7 +12,30 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lingosips.api.decks import _parse_deck_overrides
 from lingosips.db.models import Card, Deck, Settings
+
+# ── Unit tests for _parse_deck_overrides ─────────────────────────────────────
+
+
+class TestParseDeckOverrides:
+    """Direct unit tests for the _parse_deck_overrides helper."""
+
+    def test_none_returns_none(self) -> None:
+        assert _parse_deck_overrides(None) is None
+
+    def test_valid_json_dict_returns_dict(self) -> None:
+        result = _parse_deck_overrides('{"cards_per_session": 10}')
+        assert result == {"cards_per_session": 10}
+
+    def test_malformed_json_returns_none(self) -> None:
+        """Invalid JSON string → returns None instead of raising (defensive)."""
+        assert _parse_deck_overrides("not-json") is None
+
+    def test_json_non_dict_returns_none(self) -> None:
+        """JSON array (not a dict) → returns None."""
+        assert _parse_deck_overrides("[1, 2, 3]") is None
+
 
 # ── Shared fixtures ─────────────────────────────────────────────────────────
 
@@ -127,15 +150,11 @@ class TestListDecks:
         data = response.json()
         assert data[0]["due_card_count"] == 2
 
-    async def test_list_decks_missing_target_language_returns_422(
-        self, client: AsyncClient
-    ):
+    async def test_list_decks_missing_target_language_returns_422(self, client: AsyncClient):
         response = await client.get("/decks")
         assert response.status_code == 422
 
-    async def test_list_decks_ordered_by_name(
-        self, client: AsyncClient, session: AsyncSession
-    ):
+    async def test_list_decks_ordered_by_name(self, client: AsyncClient, session: AsyncSession):
         for name in ["Zebra Deck", "Alpha Deck", "Mango Deck"]:
             session.add(Deck(name=name, target_language="es"))
         await session.commit()
@@ -144,9 +163,7 @@ class TestListDecks:
         names = [d["name"] for d in response.json()]
         assert names == sorted(names)
 
-    async def test_list_decks_response_shape(
-        self, client: AsyncClient, seed_deck: Deck
-    ):
+    async def test_list_decks_response_shape(self, client: AsyncClient, seed_deck: Deck):
         response = await client.get("/decks?target_language=es")
         assert response.status_code == 200
         deck_data = response.json()[0]
@@ -158,9 +175,7 @@ class TestListDecks:
         assert "created_at" in deck_data
         assert "updated_at" in deck_data
 
-    async def test_list_decks_zero_cards_deck_included(
-        self, client: AsyncClient, seed_deck: Deck
-    ):
+    async def test_list_decks_zero_cards_deck_included(self, client: AsyncClient, seed_deck: Deck):
         """Decks with zero cards must still appear (outerjoin required)."""
         response = await client.get("/decks?target_language=es")
         assert response.status_code == 200
@@ -182,9 +197,7 @@ class TestCreateDeck:
             await conn.execute(text("DELETE FROM settings"))
 
     async def test_create_deck_success(self, client: AsyncClient):
-        response = await client.post(
-            "/decks", json={"name": "My Deck", "target_language": "es"}
-        )
+        response = await client.post("/decks", json={"name": "My Deck", "target_language": "es"})
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == "My Deck"
@@ -200,18 +213,12 @@ class TestCreateDeck:
         assert response.status_code == 422
 
     async def test_create_deck_empty_name_returns_422(self, client: AsyncClient):
-        response = await client.post(
-            "/decks", json={"name": "", "target_language": "es"}
-        )
+        response = await client.post("/decks", json={"name": "", "target_language": "es"})
         assert response.status_code == 422
 
-    async def test_create_deck_duplicate_name_same_language_returns_409(
-        self, client: AsyncClient
-    ):
+    async def test_create_deck_duplicate_name_same_language_returns_409(self, client: AsyncClient):
         await client.post("/decks", json={"name": "My Deck", "target_language": "es"})
-        response = await client.post(
-            "/decks", json={"name": "My Deck", "target_language": "es"}
-        )
+        response = await client.post("/decks", json={"name": "My Deck", "target_language": "es"})
         assert response.status_code == 409
         body = response.json()
         assert body["type"] == "/errors/deck-name-conflict"
@@ -223,9 +230,7 @@ class TestCreateDeck:
         self, client: AsyncClient
     ):
         await client.post("/decks", json={"name": "My Deck", "target_language": "es"})
-        response = await client.post(
-            "/decks", json={"name": "My Deck", "target_language": "fr"}
-        )
+        response = await client.post("/decks", json={"name": "My Deck", "target_language": "fr"})
         assert response.status_code == 201
         assert response.json()["target_language"] == "fr"
 
@@ -273,12 +278,8 @@ class TestPatchDeck:
             await conn.execute(text("DELETE FROM decks"))
             await conn.execute(text("DELETE FROM settings"))
 
-    async def test_patch_deck_rename_success(
-        self, client: AsyncClient, seed_deck: Deck
-    ):
-        response = await client.patch(
-            f"/decks/{seed_deck.id}", json={"name": "New Name"}
-        )
+    async def test_patch_deck_rename_success(self, client: AsyncClient, seed_deck: Deck):
+        response = await client.patch(f"/decks/{seed_deck.id}", json={"name": "New Name"})
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == "New Name"
@@ -305,26 +306,16 @@ class TestPatchDeck:
         assert response.status_code == 409
         assert response.json()["type"] == "/errors/deck-name-conflict"
 
-    async def test_patch_deck_duplicate_name_self_is_ok(
-        self, client: AsyncClient, seed_deck: Deck
-    ):
-        response = await client.patch(
-            f"/decks/{seed_deck.id}", json={"name": seed_deck.name}
-        )
+    async def test_patch_deck_duplicate_name_self_is_ok(self, client: AsyncClient, seed_deck: Deck):
+        response = await client.patch(f"/decks/{seed_deck.id}", json={"name": seed_deck.name})
         assert response.status_code == 200
 
-    async def test_patch_deck_empty_name_returns_422(
-        self, client: AsyncClient, seed_deck: Deck
-    ):
+    async def test_patch_deck_empty_name_returns_422(self, client: AsyncClient, seed_deck: Deck):
         response = await client.patch(f"/decks/{seed_deck.id}", json={"name": ""})
         assert response.status_code == 422
 
-    async def test_patch_returns_updated_deck_response(
-        self, client: AsyncClient, seed_deck: Deck
-    ):
-        response = await client.patch(
-            f"/decks/{seed_deck.id}", json={"name": "Updated Name"}
-        )
+    async def test_patch_returns_updated_deck_response(self, client: AsyncClient, seed_deck: Deck):
+        response = await client.patch(f"/decks/{seed_deck.id}", json={"name": "Updated Name"})
         assert response.status_code == 200
         data = response.json()
         assert "id" in data
@@ -358,9 +349,7 @@ class TestPatchDeck:
             json={"settings_overrides": {"auto_generate_images": True}},
         )
         # Then clear them
-        response = await client.patch(
-            f"/decks/{seed_deck.id}", json={"settings_overrides": None}
-        )
+        response = await client.patch(f"/decks/{seed_deck.id}", json={"settings_overrides": None})
         assert response.status_code == 200
         assert response.json()["settings_overrides"] is None
 
@@ -387,6 +376,56 @@ class TestPatchDeck:
         deck_in_list = next(d for d in list_resp.json() if d["id"] == seed_deck.id)
         assert deck_in_list["settings_overrides"] == {"cards_per_session": 10}
 
+    async def test_patch_deck_settings_overrides_invalid_value_type_returns_422(
+        self, client: AsyncClient, seed_deck: Deck
+    ) -> None:
+        """settings_overrides with invalid cards_per_session type → 422."""
+        response = await client.patch(
+            f"/decks/{seed_deck.id}",
+            json={"settings_overrides": {"cards_per_session": "not-a-number"}},
+        )
+        assert response.status_code == 422
+
+    async def test_patch_deck_settings_overrides_invalid_audio_bool_returns_422(
+        self, client: AsyncClient, seed_deck: Deck
+    ) -> None:
+        """settings_overrides with non-bool auto_generate_audio → 422."""
+        response = await client.patch(
+            f"/decks/{seed_deck.id}",
+            json={"settings_overrides": {"auto_generate_audio": "yes"}},
+        )
+        assert response.status_code == 422
+
+    async def test_patch_deck_settings_overrides_invalid_images_bool_returns_422(
+        self, client: AsyncClient, seed_deck: Deck
+    ) -> None:
+        """settings_overrides with non-bool auto_generate_images → 422."""
+        response = await client.patch(
+            f"/decks/{seed_deck.id}",
+            json={"settings_overrides": {"auto_generate_images": 1}},
+        )
+        assert response.status_code == 422
+
+    async def test_patch_deck_settings_overrides_invalid_practice_mode_returns_422(
+        self, client: AsyncClient, seed_deck: Deck
+    ) -> None:
+        """settings_overrides with invalid default_practice_mode value → 422."""
+        response = await client.patch(
+            f"/decks/{seed_deck.id}",
+            json={"settings_overrides": {"default_practice_mode": "invalid_mode"}},
+        )
+        assert response.status_code == 422
+
+    async def test_patch_deck_settings_overrides_cards_per_session_boundary_returns_422(
+        self, client: AsyncClient, seed_deck: Deck
+    ) -> None:
+        """settings_overrides with cards_per_session out of range → 422."""
+        response = await client.patch(
+            f"/decks/{seed_deck.id}",
+            json={"settings_overrides": {"cards_per_session": 0}},
+        )
+        assert response.status_code == 422
+
 
 # ── TestDeleteDeck ───────────────────────────────────────────────────────────
 
@@ -399,9 +438,7 @@ class TestDeleteDeck:
             await conn.execute(text("DELETE FROM decks"))
             await conn.execute(text("DELETE FROM settings"))
 
-    async def test_delete_deck_returns_204(
-        self, client: AsyncClient, seed_deck: Deck
-    ):
+    async def test_delete_deck_returns_204(self, client: AsyncClient, seed_deck: Deck):
         response = await client.delete(f"/decks/{seed_deck.id}")
         assert response.status_code == 204
 
@@ -413,7 +450,8 @@ class TestDeleteDeck:
         assert body["status"] == 404
 
     async def test_delete_deck_cards_remain_with_null_deck_id(
-        self, client: AsyncClient,
+        self,
+        client: AsyncClient,
         session: AsyncSession,
         seed_deck_with_cards: tuple[Deck, list[Card]],
     ):
@@ -426,9 +464,7 @@ class TestDeleteDeck:
             await session.refresh(card)
             assert card.deck_id is None
 
-    async def test_delete_deck_and_refetch_returns_404(
-        self, client: AsyncClient, seed_deck: Deck
-    ):
+    async def test_delete_deck_and_refetch_returns_404(self, client: AsyncClient, seed_deck: Deck):
         await client.delete(f"/decks/{seed_deck.id}")
         # After deletion the deck should no longer appear in list
         response = await client.get("/decks?target_language=es")
