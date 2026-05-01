@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { CardCreationPanel } from "../features/cards"
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -6,15 +7,9 @@ export const Route = createFileRoute("/")({
 
 function HomePage() {
   return (
-    <div className="flex min-h-full items-center justify-center p-8">
-      <div className="max-w-md text-center">
-        <h1 className="text-3xl font-bold text-zinc-50">Welcome to lingosips</h1>
-        <p className="mt-4 text-zinc-400">
-          Your local-first vocabulary learning app with spaced repetition.
-        </p>
-        <p className="mt-2 text-sm text-zinc-400">
-          Get started by creating your first deck.
-        </p>
+    <div className="flex min-h-full p-4 md:p-8">
+      <div className="w-full max-w-2xl">
+        <CardCreationPanel />
       </div>
     </div>
   )
