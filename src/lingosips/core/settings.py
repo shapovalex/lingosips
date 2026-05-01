@@ -4,6 +4,7 @@ No FastAPI imports — pure business logic only.
 The API layer (api/settings.py) delegates to these functions.
 """
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -88,7 +89,14 @@ async def update_settings(session: AsyncSession, **kwargs: Any) -> Settings:
     Only fields present in kwargs are updated; all others remain unchanged.
     Language code validation must be performed by the API layer BEFORE calling
     this function — this function does not validate.
+
+    CRITICAL: target_languages must be stored as a JSON string in SQLite
+    (Settings.target_languages is a str column). If a list is passed,
+    it is serialized here before being stored.
     """
+    # Serialize target_languages list → JSON string (SQLite str column)
+    if "target_languages" in kwargs and isinstance(kwargs["target_languages"], list):
+        kwargs["target_languages"] = json.dumps(kwargs["target_languages"])
     settings = await get_or_create_settings(session)
     for key, value in kwargs.items():
         if hasattr(settings, key):

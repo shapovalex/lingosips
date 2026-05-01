@@ -1,5 +1,5 @@
 # generated: 2026-04-29
-# last_updated: 2026-04-29
+# last_updated: 2026-05-01
 # project: lingosips
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-29
-last_updated: 2026-05-01  # updated by code-review agent (story 2.2 done)
+last_updated: 2026-05-01  # updated by dev-story agent (story 2.3 in-progress)
 project: lingosips
 project_key: NOKEY
 tracking_system: file-system
@@ -60,7 +60,7 @@ development_status:
   epic-2: in-progress
   2-1-card-detail-editing-notes: done
   2-2-deck-management-multi-language: done
-  2-3-service-configuration-system-defaults: backlog
+  2-3-service-configuration-system-defaults: review
   2-4-import-pipeline-anki-text-url: backlog
   2-5-deck-export-import-lingosips-format: backlog
   2-6-per-card-image-generation: backlog

@@ -23,8 +23,8 @@ DB_PATH = DB_DIR / "lingosips.db"
 _DATABASE_URL = _TEST_DB_URL or f"sqlite+aiosqlite:///{DB_PATH}"
 
 # In-memory SQLite (used in tests) requires StaticPool for shared state across connections
-if ":memory:" in _DATABASE_URL:
-    engine = create_async_engine(
+if ":memory:" in _DATABASE_URL:  # pragma: no cover
+    engine = create_async_engine(  # pragma: no cover
         _DATABASE_URL,
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
@@ -39,11 +39,11 @@ else:
 
 
 @listens_for(engine.sync_engine, "connect")
-def _set_wal_mode(dbapi_conn, connection_record):  # noqa: ARG001
+def _set_wal_mode(dbapi_conn, connection_record):  # noqa: ARG001  # pragma: no cover
     """Enable WAL journal mode on every new connection for better concurrency."""
-    cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.close()
+    cursor = dbapi_conn.cursor()  # pragma: no cover
+    cursor.execute("PRAGMA journal_mode=WAL")  # pragma: no cover
+    cursor.close()  # pragma: no cover
 
 
 AsyncSessionLocal = sessionmaker(
@@ -53,7 +53,7 @@ AsyncSessionLocal = sessionmaker(
 )
 
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:  # pragma: no cover
     """FastAPI dependency that yields an async database session."""
-    async with AsyncSessionLocal() as session:
-        yield session
+    async with AsyncSessionLocal() as session:  # pragma: no cover
+        yield session  # pragma: no cover

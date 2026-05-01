@@ -117,3 +117,64 @@ test.describe("First-Run Onboarding", () => {
     })
   })
 })
+
+// ── Settings page — Story 2.3 ─────────────────────────────────────────────────
+
+test.describe("Settings page — Story 2.3", () => {
+  test.beforeEach(async ({ page }) => {
+    await completeOnboardingViaAPI(page)
+    await page.goto("/settings")
+  })
+
+  test("renders AI Services, Languages, and Study Defaults sections", async ({ page }) => {
+    await expect(page.getByRole("heading", { name: "AI Services" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Languages" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Study Defaults" })).toBeVisible()
+  })
+
+  test("AI upgrade panel opens inline — no modal dialog", async ({ page }) => {
+    await page.getByRole("button", { name: "Upgrade" }).first().click()
+    // No dialog/modal — form is inline
+    await expect(page.getByRole("dialog")).not.toBeVisible({ timeout: 500 })
+    await expect(page.getByLabel(/API key/i)).toBeVisible()
+  })
+
+  test("API key input is masked (type=password)", async ({ page }) => {
+    await page.getByRole("button", { name: "Upgrade" }).first().click()
+    const input = page.getByLabel(/API key/i)
+    await expect(input).toHaveAttribute("type", "password")
+  })
+
+  test("invalid API key shows specific error message", async ({ page }) => {
+    await page.getByRole("button", { name: "Upgrade" }).first().click()
+    await page.getByLabel(/API key/i).fill("sk-invalid-key-abc123")
+    // Click Test connection — real backend will fail with bad key
+    await page.getByRole("button", { name: "Test connection" }).click()
+    await expect(page.getByTestId("test-error-message")).toBeVisible({ timeout: 15000 })
+    // Save button must NOT appear inside the AI service panel after a failed test
+    const aiPanel = page.getByTestId("ai-service-panel")
+    await expect(aiPanel.getByRole("button", { name: "Save" })).not.toBeVisible()
+  })
+
+  test("system defaults save persists via API", async ({ page }) => {
+    // Get initial auto_generate_audio state
+    const initialResp = await page.request.get("http://localhost:7842/settings")
+    const initial = await initialResp.json()
+    const newAudioValue = !initial.auto_generate_audio
+    // Toggle auto_generate_audio
+    await page.getByRole("switch", { name: /Auto.generate audio/i }).click()
+    await page.getByRole("button", { name: /Save/i }).last().click()
+    // Verify persisted
+    const resp = await page.request.get("http://localhost:7842/settings")
+    const body = await resp.json()
+    expect(body.auto_generate_audio).toBe(newAudioValue)
+  })
+
+  test("language section saves and settings endpoint responds", async ({ page }) => {
+    const resp = await page.request.get("http://localhost:7842/settings")
+    expect(resp.status()).toBe(200)
+    const body = await resp.json()
+    expect(body).toHaveProperty("native_language")
+    expect(body).toHaveProperty("target_languages")
+  })
+})

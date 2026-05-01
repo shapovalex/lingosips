@@ -95,7 +95,13 @@ def create_app() -> FastAPI:
             and "text/html" in accept
             and index_html.exists()
         ):
-            return FileResponse(str(index_html))
+            response = FileResponse(str(index_html))
+            # Prevent the browser from caching the HTML response at API-shared
+            # paths (e.g. /settings).  Without this the browser serves the
+            # cached HTML for subsequent React fetch("/settings") calls that
+            # send Accept: application/json, causing JSON-parse failures.
+            response.headers["Cache-Control"] = "no-store"
+            return response
         return await call_next(request)
 
     # RFC 7807 Problem Details exception handler — all errors return JSON, never HTML.

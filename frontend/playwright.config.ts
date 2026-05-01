@@ -17,7 +17,9 @@ export default defineConfig({
   workers: 1,
   reporter: "html",
   use: {
-    baseURL: "http://localhost:7842",
+    // Use 127.0.0.1 explicitly — avoids IPv6 (::1) resolution failures when
+    // the backend is bound only to 127.0.0.1 and the browser prefers IPv6.
+    baseURL: "http://127.0.0.1:7842",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -31,7 +33,7 @@ export default defineConfig({
 
   webServer: {
     command: "cd .. && make test-server",
-    url: "http://localhost:7842/health",
+    url: "http://127.0.0.1:7842/health",
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
   },

@@ -90,6 +90,17 @@ _qwen_provider: QwenLocalProvider | None = None  # cached after first creation
 _pyttsx3_provider: Pyttsx3Provider | None = None  # module-level singleton
 
 
+def invalidate_provider_cache() -> None:
+    """Reset cached provider instances. Call after any credential change.
+
+    Addresses deferred: '_qwen_provider singleton never invalidated if model path changes'
+    from deferred-work.md (Story 1.5 code review).
+    """
+    global _qwen_provider, _pyttsx3_provider
+    _qwen_provider = None
+    _pyttsx3_provider = None
+
+
 def get_llm_provider() -> AbstractLLMProvider:
     """Return the appropriate LLM provider based on configured credentials.
 

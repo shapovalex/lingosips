@@ -101,6 +101,11 @@ async def update_deck(
     """
     deck = await get_deck(deck_id, session)
 
+    # settings_overrides: serialize dict → JSON string, None → None (clears overrides)
+    if "settings_overrides" in update_data:
+        value = update_data.pop("settings_overrides")
+        deck.settings_overrides = json.dumps(value) if value is not None else None
+
     if "name" in update_data:
         new_name = update_data["name"]
         # Only check for conflict if the name actually changed

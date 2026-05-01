@@ -4,10 +4,11 @@ Router only — no business logic. Delegates to core.decks.*().
 All error handling converts ValueError from core into RFC 7807 HTTPException.
 """
 
+import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lingosips.core import decks as core_decks
@@ -25,6 +26,7 @@ class DeckResponse(BaseModel):
     target_language: str
     card_count: int
     due_card_count: int
+    settings_overrides: dict | None = None  # deck-level defaults (None = use system defaults)
     created_at: datetime
     updated_at: datetime
 
@@ -34,8 +36,42 @@ class DeckCreateRequest(BaseModel):
     target_language: str | None = None  # defaults to active_target_language if omitted
 
 
+_VALID_OVERRIDE_KEYS = frozenset(
+    {"auto_generate_audio", "auto_generate_images", "default_practice_mode", "cards_per_session"}
+)
+
+
 class DeckUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
+    settings_overrides: dict | None = None  # deck-level defaults override
+
+    @field_validator("settings_overrides")
+    @classmethod
+    def validate_override_keys(cls, v: dict | None) -> dict | None:
+        """Reject any key not in the allowed set."""
+        if v is None:
+            return v
+        invalid = set(v.keys()) - _VALID_OVERRIDE_KEYS
+        if invalid:
+            raise ValueError(
+                f"Invalid settings_overrides keys: {invalid}. Allowed: {_VALID_OVERRIDE_KEYS}"
+            )
+        return v
+
+
+def _parse_deck_overrides(raw: str | None) -> dict | None:
+    """Safe JSON parse for Deck.settings_overrides — never raises.
+
+    Deck.settings_overrides is stored as a JSON string in SQLite.
+    Returns None on malformed data rather than crashing.
+    """
+    if raw is None:
+        return None
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 def _deck_row_to_response(row: dict) -> DeckResponse:
@@ -50,6 +86,7 @@ def _deck_row_to_response(row: dict) -> DeckResponse:
         target_language=deck.target_language,
         card_count=row["card_count"],
         due_card_count=row["due_card_count"],
+        settings_overrides=_parse_deck_overrides(deck.settings_overrides),
         created_at=deck.created_at,
         updated_at=deck.updated_at,
     )
@@ -63,6 +100,7 @@ def _deck_to_response(deck, card_count: int = 0, due_card_count: int = 0) -> Dec
         target_language=deck.target_language,
         card_count=card_count,
         due_card_count=due_card_count,
+        settings_overrides=_parse_deck_overrides(deck.settings_overrides),
         created_at=deck.created_at,
         updated_at=deck.updated_at,
     )
@@ -135,6 +173,9 @@ async def patch_deck(
     update_data: dict = {}
     if "name" in request.model_fields_set and request.name is not None:
         update_data["name"] = request.name.strip()
+    if "settings_overrides" in request.model_fields_set:
+        # None is a valid explicit value (clears overrides) — use model_fields_set not None check
+        update_data["settings_overrides"] = request.settings_overrides
 
     try:
         deck = await core_decks.update_deck(deck_id, update_data, session)

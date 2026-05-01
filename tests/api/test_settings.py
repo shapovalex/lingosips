@@ -185,3 +185,60 @@ class TestPutSettings:
         # Verify persisted via GET
         get_resp = await client.get("/settings")
         assert get_resp.json()["onboarding_completed"] is False
+
+    async def test_put_settings_updates_target_languages(self, client: AsyncClient) -> None:
+        """T1.1: PUT {"target_languages": ["es", "fr"]} → 200; response target_languages == '["es", "fr"]'."""
+        response = await client.put(
+            "/settings", json={"target_languages": ["es", "fr"]}
+        )
+        assert response.status_code == 200
+        body = response.json()
+        import json as _json
+        langs = _json.loads(body["target_languages"])
+        assert langs == ["es", "fr"]
+
+    async def test_put_settings_target_languages_invalid_code_returns_422(
+        self, client: AsyncClient
+    ) -> None:
+        """T1.1: PUT with invalid language code 'xx' → 422 RFC 7807 with /errors/invalid-language."""
+        response = await client.put(
+            "/settings", json={"target_languages": ["es", "xx"]}
+        )
+        assert response.status_code == 422
+        body = response.json()
+        assert body["type"] == "/errors/invalid-language"
+        assert body["status"] == 422
+
+    async def test_put_settings_target_languages_empty_list_returns_422(
+        self, client: AsyncClient
+    ) -> None:
+        """T1.1: PUT {"target_languages": []} → 422 (empty list not allowed)."""
+        response = await client.put("/settings", json={"target_languages": []})
+        assert response.status_code == 422
+
+    async def test_put_settings_target_languages_preserves_other_fields(
+        self, client: AsyncClient
+    ) -> None:
+        """T1.1: PUT only target_languages — other fields remain unchanged."""
+        # Establish known state
+        await client.put(
+            "/settings",
+            json={
+                "native_language": "en",
+                "active_target_language": "es",
+                "onboarding_completed": True,
+            },
+        )
+        # Update only target_languages
+        response = await client.put(
+            "/settings", json={"target_languages": ["es", "de"]}
+        )
+        assert response.status_code == 200
+        body = response.json()
+        # target_languages updated
+        import json as _json
+        assert _json.loads(body["target_languages"]) == ["es", "de"]
+        # Other fields preserved
+        assert body["native_language"] == "en"
+        assert body["active_target_language"] == "es"
+        assert body["onboarding_completed"] is True

@@ -6,7 +6,7 @@ return shaped responses.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lingosips.core import settings as core_settings
@@ -30,11 +30,22 @@ class SettingsResponse(BaseModel):
 class SettingsUpdateRequest(BaseModel):
     native_language: str | None = None
     active_target_language: str | None = None
+    target_languages: list[str] | None = None  # BCP47 codes list — serialized to JSON string in DB
     onboarding_completed: bool | None = None
     auto_generate_audio: bool | None = None
     auto_generate_images: bool | None = None
     default_practice_mode: str | None = None
     cards_per_session: int | None = Field(default=None, ge=1, le=100)
+
+    @field_validator("target_languages")
+    @classmethod
+    def validate_target_languages(cls, v: list[str] | None) -> list[str] | None:
+        """Reject empty lists — at least one language must be specified."""
+        if v is None:
+            return v
+        if len(v) == 0:
+            raise ValueError("target_languages must not be empty")
+        return v
 
 
 @router.get("", response_model=SettingsResponse)
@@ -84,6 +95,12 @@ async def update_settings(
             core_settings.validate_language_code(body.active_target_language)
         except ValueError:
             _raise_invalid_language(body.active_target_language)
+    if body.target_languages is not None:
+        for code in body.target_languages:
+            try:
+                core_settings.validate_language_code(code)
+            except ValueError:
+                _raise_invalid_language(code)
     # Exclude None fields — partial update semantics.
     # Note: False and 0 are NOT None, so boolean flags (e.g. onboarding_completed=False)
     # are correctly included. Only truly-absent optional fields (None) are excluded.

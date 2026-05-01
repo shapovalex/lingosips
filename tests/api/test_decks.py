@@ -335,6 +335,58 @@ class TestPatchDeck:
         assert "created_at" in data
         assert "updated_at" in data
 
+    async def test_patch_deck_settings_overrides_success(
+        self, client: AsyncClient, seed_deck: Deck
+    ) -> None:
+        """T4.1: PATCH with settings_overrides → 200, body contains overrides."""
+        overrides = {"auto_generate_images": True, "default_practice_mode": "write"}
+        response = await client.patch(
+            f"/decks/{seed_deck.id}",
+            json={"settings_overrides": overrides},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["settings_overrides"] == overrides
+
+    async def test_patch_deck_settings_overrides_null_clears_overrides(
+        self, client: AsyncClient, seed_deck: Deck
+    ) -> None:
+        """T4.1: PATCH settings_overrides=None clears any previously stored overrides."""
+        # First set some overrides
+        await client.patch(
+            f"/decks/{seed_deck.id}",
+            json={"settings_overrides": {"auto_generate_images": True}},
+        )
+        # Then clear them
+        response = await client.patch(
+            f"/decks/{seed_deck.id}", json={"settings_overrides": None}
+        )
+        assert response.status_code == 200
+        assert response.json()["settings_overrides"] is None
+
+    async def test_patch_deck_settings_overrides_invalid_key_returns_422(
+        self, client: AsyncClient, seed_deck: Deck
+    ) -> None:
+        """T4.1: invalid key in settings_overrides → 422."""
+        response = await client.patch(
+            f"/decks/{seed_deck.id}",
+            json={"settings_overrides": {"invalid_key": True}},
+        )
+        assert response.status_code == 422
+
+    async def test_patch_deck_list_returns_settings_overrides(
+        self, client: AsyncClient, seed_deck: Deck, seed_settings: Settings
+    ) -> None:
+        """T4.1: DeckResponse in list endpoint includes settings_overrides after patch."""
+        await client.patch(
+            f"/decks/{seed_deck.id}",
+            json={"settings_overrides": {"cards_per_session": 10}},
+        )
+        list_resp = await client.get("/decks", params={"target_language": "es"})
+        assert list_resp.status_code == 200
+        deck_in_list = next(d for d in list_resp.json() if d["id"] == seed_deck.id)
+        assert deck_in_list["settings_overrides"] == {"cards_per_session": 10}
+
 
 # ── TestDeleteDeck ───────────────────────────────────────────────────────────
 
