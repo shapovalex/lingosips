@@ -8,9 +8,15 @@ NOTE: Alembic runs synchronously against a file-based SQLite DB.
 """
 
 import os
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, text
+
+# Resolve alembic.ini relative to this file so tests work regardless of CWD.
+# Layout: tests/db/test_migrations.py → project root is ../../
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+_ALEMBIC_INI = str(_PROJECT_ROOT / "alembic.ini")
 
 
 @pytest.fixture(scope="module")
@@ -34,7 +40,7 @@ def migrated_engine(migration_db_url):
     from alembic import command
     from alembic.config import Config
 
-    alembic_cfg = Config("alembic.ini")
+    alembic_cfg = Config(_ALEMBIC_INI)
     command.upgrade(alembic_cfg, "head")
 
     engine = create_engine(migration_db_url)
@@ -188,7 +194,7 @@ class TestMigrationIdempotency:
         from alembic import command
         from alembic.config import Config
 
-        alembic_cfg = Config("alembic.ini")
+        alembic_cfg = Config(_ALEMBIC_INI)
 
         # Run twice — must not raise
         command.upgrade(alembic_cfg, "head")

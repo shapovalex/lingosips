@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-29
-last_updated: 2026-04-29
+last_updated: 2026-04-30  # updated by code-review agent
 project: lingosips
 project_key: NOKEY
 tracking_system: file-system
@@ -45,7 +45,7 @@ development_status:
   # Epic 1: Working App & First Card
   epic-1: in-progress
   1-1-project-initialization-dev-infrastructure: review
-  1-2-app-shell-design-system-foundation: backlog
+  1-2-app-shell-design-system-foundation: done
   1-3-secure-credential-storage-foundation: backlog
   1-4-first-run-language-onboarding: backlog
   1-5-ai-provider-abstraction-local-llm-fallback: backlog

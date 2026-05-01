@@ -20,10 +20,36 @@
   --line-height-heading: 1.2;
 }
 
-/* shadcn/ui dark theme CSS variables */
-:root {
-  --background: 240 10% 3.9%;
-  --foreground: 0 0% 98%;
+/* Light mode vars — applied when <html class="light"> or no dark class */
+:root,
+.light {
+  --background: 0 0% 98%;          /* zinc-50 */
+  --foreground: 240 5.9% 10%;       /* zinc-900 */
+  --card: 0 0% 98%;
+  --card-foreground: 240 5.9% 10%;
+  --popover: 0 0% 98%;
+  --popover-foreground: 240 5.9% 10%;
+  --primary: 240 5.9% 10%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 240 4.8% 95.9%;
+  --secondary-foreground: 240 5.9% 10%;
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+  --accent: 240 4.8% 95.9%;
+  --accent-foreground: 240 5.9% 10%;
+  --destructive: 0 72.2% 50.6%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 240 5.9% 90%;
+  --input: 240 5.9% 90%;
+  --ring: 240 5.9% 10%;
+  --radius: 0.5rem;
+  color-scheme: light;
+}
+
+/* Dark mode vars — applied when <html class="dark"> */
+.dark {
+  --background: 240 10% 3.9%;      /* zinc-950 */
+  --foreground: 0 0% 98%;           /* zinc-50 */
   --card: 240 10% 3.9%;
   --card-foreground: 0 0% 98%;
   --popover: 240 10% 3.9%;
@@ -45,6 +71,25 @@
   color-scheme: dark;
 }
 
+/* Global focus ring — WCAG 2.1 AA, indigo-500 (#6366f1), never removed */
+*:focus-visible {
+  outline: 2px solid #6366f1;   /* indigo-500 */
+  outline-offset: 2px;
+}
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* prefers-reduced-motion — disable all transitions */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Body base styles */
 * {
   border-color: hsl(var(--border));
 }
