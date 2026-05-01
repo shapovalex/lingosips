@@ -30,6 +30,15 @@ export default defineConfig([
           extraHOCs: ['createFileRoute', 'createRootRouteWithContext'],
         },
       ],
+      // Allow intentionally-unused parameters/variables prefixed with _ (standard convention).
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
     },
   },
 ])

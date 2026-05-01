@@ -334,7 +334,7 @@ export function CardDetail({ cardId }: CardDetailProps) {
           ariaLabel="grammatical forms"
           editingField={editingField}
           fieldDraft={editingField === "forms" ? fieldDraft : formsDraft}
-          onStartEdit={(name, _) => startEdit(name, formsDraft)}
+          onStartEdit={(name, _currentValue) => startEdit(name, formsDraft)}
           onChangeField={setFieldDraft}
           onBlur={commitEdit}
         />
@@ -352,7 +352,7 @@ export function CardDetail({ cardId }: CardDetailProps) {
           ariaLabel="example sentences"
           editingField={editingField}
           fieldDraft={editingField === "example_sentences" ? fieldDraft : examplesDraft}
-          onStartEdit={(name, _) => startEdit(name, examplesDraft)}
+          onStartEdit={(name, _currentValue) => startEdit(name, examplesDraft)}
           onChangeField={setFieldDraft}
           onBlur={commitEdit}
         />
@@ -385,7 +385,7 @@ export function CardDetail({ cardId }: CardDetailProps) {
           ariaLabel="personal note"
           editingField={editingField}
           fieldDraft={editingField === "personal_note" ? fieldDraft : noteDraft}
-          onStartEdit={(name, _) => startEdit(name, noteDraft)}
+          onStartEdit={(name, _currentValue) => startEdit(name, noteDraft)}
           onChangeField={setFieldDraft}
           onBlur={commitEdit}
         />

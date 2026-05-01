@@ -75,10 +75,12 @@ export function LanguageSection() {
   const [activeTargetLanguage, setActiveTargetLanguage] = useState("es")
   const [targetLanguages, setTargetLanguages] = useState<string[]>(["es"])
 
-  // Sync local state from query data
+  // Sync local state from query data (initialize form fields when server data arrives).
+  // Pattern: external store sync via useEffect is intentional here — the form needs
+  // editable local copies of server values. This is a legitimate use of setState in effect.
   useEffect(() => {
     if (settings) {
-      setNativeLanguage(settings.native_language)
+      setNativeLanguage(settings.native_language) // eslint-disable-line react-hooks/set-state-in-effect
       setActiveTargetLanguage(settings.active_target_language)
       setTargetLanguages(safeParseLanguages(settings.target_languages))
     }

@@ -53,6 +53,7 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 source = ["src/lingosips"]
+concurrency = ["greenlet", "thread"]
 omit = [
     "src/lingosips/static/*",
     "src/lingosips/db/migrations/*",

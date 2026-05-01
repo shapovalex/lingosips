@@ -47,10 +47,12 @@ export function SystemDefaultsSection() {
   const [defaultPracticeMode, setDefaultPracticeMode] = useState<PracticeMode>("self_assess")
   const [cardsPerSession, setCardsPerSession] = useState(20)
 
-  // Sync local state from query data (reset dirty state on fresh data)
+  // Sync local state from query data (reset dirty state on fresh data).
+  // Pattern: external store sync via useEffect is intentional here — the form needs
+  // editable local copies of server values. This is a legitimate use of setState in effect.
   useEffect(() => {
     if (settings) {
-      setAutoGenerateAudio(settings.auto_generate_audio)
+      setAutoGenerateAudio(settings.auto_generate_audio) // eslint-disable-line react-hooks/set-state-in-effect
       setAutoGenerateImages(settings.auto_generate_images)
       setDefaultPracticeMode(settings.default_practice_mode as PracticeMode)
       setCardsPerSession(settings.cards_per_session)

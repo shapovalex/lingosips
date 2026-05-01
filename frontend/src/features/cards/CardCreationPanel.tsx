@@ -63,14 +63,17 @@ export function CardCreationPanel() {
     enabled: state === "populated",
   })
 
-  // Reset selectedDeckId when panel returns to idle
+  // Reset selectedDeckId when panel returns to idle.
+  // Legitimate external state sync (SSE-driven state machine → local UI state).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (state === "idle") setSelectedDeckId(null)
   }, [state])
 
-  // Track completedCardId from the SSE complete event
+  // Track completedCardId from the SSE complete event.
   useEffect(() => {
     if (state === "populated" && fields.card_id != null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCompletedCardId(fields.card_id)
     }
     if (state === "idle") {

@@ -6,6 +6,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ServiceStatusIndicator } from "@/components/ServiceStatusIndicator"
+import { useAppStore } from "@/lib/stores/useAppStore"
 
 const NAV_ITEMS = [
   { to: "/", icon: Home, label: "Home", ariaLabel: "Home — card creation" },
@@ -16,31 +17,83 @@ const NAV_ITEMS = [
   { to: "/settings", icon: Settings, label: "Settings", ariaLabel: "Settings" },
 ] as const
 
+/** SVG progress ring overlay for the Import icon when enrichment is running. */
+function ImportProgressRing({ done, total }: { done: number; total: number }) {
+  const radius = 20
+  const circumference = 2 * Math.PI * radius
+  const progress = total > 0 ? done / total : 0
+  const dashOffset = circumference * (1 - progress)
+
+  return (
+    <svg
+      aria-hidden="true"
+      className="absolute inset-0 w-full h-full -rotate-90"
+      viewBox="0 0 44 44"
+    >
+      {/* Background ring */}
+      <circle
+        cx="22"
+        cy="22"
+        r={radius}
+        fill="none"
+        stroke="rgba(99,102,241,0.2)"
+        strokeWidth="3"
+      />
+      {/* Progress ring */}
+      <circle
+        cx="22"
+        cy="22"
+        r={radius}
+        fill="none"
+        stroke="rgb(99,102,241)"
+        strokeWidth="3"
+        strokeDasharray={circumference}
+        strokeDashoffset={dashOffset}
+        strokeLinecap="round"
+        className="transition-all duration-500"
+      />
+    </svg>
+  )
+}
+
 /**
  * IconSidebar — 64px fixed icon sidebar for desktop navigation (md+).
  * Hidden below 768px (BottomNav takes over).
  * Width is ALWAYS w-16 (64px) — never collapses or expands per spec.
  */
 export function IconSidebar() {
+  const importProgress = useAppStore((s) => s.importProgress)
+  const isImportRunning = importProgress.status === "running"
+
   return (
     <div className="hidden md:flex w-16 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
       <nav aria-label="Main navigation" className="flex flex-1 flex-col items-center gap-2 py-4">
-        {NAV_ITEMS.map(({ to, icon: Icon, label, ariaLabel }) => (
-          <Tooltip key={to}>
-            <TooltipTrigger asChild>
-              <Link
-                to={to}
-                aria-label={ariaLabel}
-                className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg transition-colors"
-                activeProps={{ className: "bg-indigo-500 text-white" }}
-                inactiveProps={{ className: "text-zinc-400 hover:text-zinc-50 hover:bg-zinc-800" }}
-              >
-                <Icon size={20} aria-hidden="true" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">{label}</TooltipContent>
-          </Tooltip>
-        ))}
+        {NAV_ITEMS.map(({ to, icon: Icon, label, ariaLabel }) => {
+          const isImportIcon = to === "/import"
+          return (
+            <Tooltip key={to}>
+              <TooltipTrigger asChild>
+                <Link
+                  to={to}
+                  aria-label={
+                    isImportIcon && isImportRunning
+                      ? `Import in progress — ${importProgress.done} of ${importProgress.total}`
+                      : ariaLabel
+                  }
+                  className="relative flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg transition-colors"
+                  activeProps={{ className: "bg-indigo-500 text-white" }}
+                  inactiveProps={{ className: "text-zinc-400 hover:text-zinc-50 hover:bg-zinc-800" }}
+                >
+                  {isImportIcon && isImportRunning && (
+                    <ImportProgressRing done={importProgress.done} total={importProgress.total} />
+                  )}
+                  <Icon size={20} aria-hidden="true" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+          )
+        })}
       </nav>
 
       {/* Footer area — ServiceStatusIndicator */}
