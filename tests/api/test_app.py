@@ -101,6 +101,159 @@ class TestBrowserOpen:
                 _schedule_browser_open()
 
 
+class TestScrubDetail:
+    """Unit tests for the _scrub_detail helper (edge cases patched in review)."""
+
+    def test_none_detail_returns_empty_string(self) -> None:
+        """_scrub_detail(None) returns '' so the handler builds the RFC 7807 envelope.
+
+        Previously returned {} which would make the response body an empty dict
+        with no 'type', 'title', or 'status' fields — an invalid RFC 7807 response.
+        """
+        from lingosips.api.app import _scrub_detail
+
+        result = _scrub_detail(None)
+        assert result == "", f"Expected empty string for None detail, got {result!r}"
+
+    def test_nested_dict_values_are_scrubbed(self) -> None:
+        """_scrub_detail recursively scrubs credentials inside nested dict values."""
+        from lingosips.api.app import _scrub_detail
+
+        detail = {
+            "message": "api_key=sk-outerleak is invalid",
+            "context": {"token": "sk-innerleak"},
+        }
+        result = _scrub_detail(detail)
+        assert isinstance(result, dict)
+        assert "sk-outerleak" not in str(result), "Outer credential must be scrubbed"
+        assert "sk-innerleak" not in str(result), "Nested credential must be scrubbed"
+        assert "[REDACTED]" in str(result)
+
+    def test_non_string_dict_values_preserved(self) -> None:
+        """_scrub_detail preserves non-string, non-dict values (int, bool, list) unchanged."""
+        from lingosips.api.app import _scrub_detail
+
+        detail = {"status": 422, "active": True, "items": [1, 2, 3]}
+        result = _scrub_detail(detail)
+        assert result["status"] == 422
+        assert result["active"] is True
+        assert result["items"] == [1, 2, 3]
+
+
+class TestExceptionHandlerCredentialScrubbing:
+    async def test_http_exception_with_credential_in_detail_is_scrubbed(self) -> None:
+        """T5.1 / AC3: Credential in exc.detail must not appear in HTTP response.
+
+        Tests the HTTP exception handler directly (same pattern as TestRFC7807DictDetail)
+        to avoid dynamic route injection fragility.
+        """
+        import json
+        from unittest.mock import MagicMock
+
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+
+        from lingosips.api.app import app
+
+        mock_request = MagicMock()
+
+        # Find the StarletteHTTPException handler
+        http_exc_handler = None
+        for exc_type, handler in app.exception_handlers.items():
+            if exc_type is StarletteHTTPException:
+                http_exc_handler = handler
+                break
+
+        assert http_exc_handler is not None, "StarletteHTTPException handler not registered"
+
+        exc = StarletteHTTPException(
+            status_code=400,
+            detail="Error: api_key=sk-leakedsecret123 is invalid",
+        )
+        response = await http_exc_handler(mock_request, exc)
+
+        assert response.status_code == 400
+        body_text = response.body.decode()
+        assert "sk-leakedsecret123" not in body_text, (
+            "Credential value must not appear in HTTP error response"
+        )
+        body = json.loads(body_text)
+        assert "[REDACTED]" in body.get("title", "") or "Error" in body.get("title", "")
+
+    async def test_unhandled_exception_returns_generic_500(self) -> None:
+        """T5.2 / AC3: Unhandled exceptions never expose traceback or exception message.
+
+        Tests the generic Exception handler directly to verify safe 500 responses.
+        """
+        import json
+        from unittest.mock import MagicMock
+
+        from lingosips.api.app import app
+
+        mock_request = MagicMock()
+
+        # Find the generic Exception handler
+        generic_exc_handler = None
+        for exc_type, handler in app.exception_handlers.items():
+            if exc_type is Exception:
+                generic_exc_handler = handler
+                break
+
+        assert generic_exc_handler is not None, "Generic Exception handler not registered"
+
+        exc = RuntimeError("api_key=sk-verysecretvalue123 caused a crash")
+        response = await generic_exc_handler(mock_request, exc)
+
+        assert response.status_code == 500
+        body_text = response.body.decode()
+        assert "sk-verysecretvalue123" not in body_text, (
+            "Credential value must not appear in 500 error response"
+        )
+        assert "RuntimeError" not in body_text, (
+            "Exception class name must not appear in 500 error response"
+        )
+        body = json.loads(body_text)
+        assert body["type"] == "/errors/internal"
+        assert body["status"] == 500
+
+
+class TestSPAFallback:
+    """SPA routing: 404s for browser navigation return index.html; API 404s stay JSON."""
+
+    async def test_browser_404_serves_index_html(self, client: AsyncClient) -> None:
+        """GET /settings with Accept: text/html returns 200 index.html for React routing."""
+        response = await client.get(
+            "/settings", headers={"accept": "text/html,application/xhtml+xml,*/*"}
+        )
+        assert response.status_code == 200
+        assert "text/html" in response.headers.get("content-type", ""), (
+            f"Expected text/html content-type, got: {response.headers.get('content-type')}"
+        )
+
+    async def test_api_client_404_returns_problem_json(self, client: AsyncClient) -> None:
+        """GET unknown route without Accept: text/html returns RFC 7807 JSON 404."""
+        response = await client.get(
+            "/nonexistent-api-route", headers={"accept": "application/json"}
+        )
+        assert response.status_code == 404
+        assert "application/problem+json" in response.headers.get("content-type", "")
+        body = response.json()
+        assert "type" in body and "status" in body
+
+    async def test_practice_route_serves_spa(self, client: AsyncClient) -> None:
+        """GET /practice with browser Accept header returns SPA index.html."""
+        response = await client.get(
+            "/practice", headers={"accept": "text/html,application/xhtml+xml,*/*"}
+        )
+        assert response.status_code == 200
+
+    async def test_progress_route_serves_spa(self, client: AsyncClient) -> None:
+        """GET /progress with browser Accept header returns SPA index.html."""
+        response = await client.get(
+            "/progress", headers={"accept": "text/html,application/xhtml+xml,*/*"}
+        )
+        assert response.status_code == 200
+
+
 class TestServerBinding:
     async def test_health_endpoint_accessible(self, client: AsyncClient) -> None:
         """Server is accessible (binding check via test client)."""

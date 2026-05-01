@@ -19,8 +19,10 @@ import sys
 
 import structlog
 
-# Patterns for credentials that must never appear in logs
-_CREDENTIAL_PATTERNS = [
+# Patterns for credentials that must never appear in logs or HTTP responses.
+# Exported as a public constant so api/app.py can import them for response scrubbing
+# rather than maintaining a duplicate list that could drift.
+CREDENTIAL_PATTERNS = [
     re.compile(r"(api[_-]?key|apikey|password|passwd|secret|token)[=:\s\"']+\S+", re.IGNORECASE),
     re.compile(r"sk-[A-Za-z0-9]+"),  # OpenAI/OpenRouter style keys
     re.compile(r"Bearer\s+\S+", re.IGNORECASE),
@@ -33,7 +35,7 @@ def _scrub_credentials(logger, method, event_dict):  # noqa: ARG001
     # Scrub the event message itself
     event = event_dict.get("event", "")
     if isinstance(event, str):
-        for pattern in _CREDENTIAL_PATTERNS:
+        for pattern in CREDENTIAL_PATTERNS:
             event = pattern.sub(_REDACTED, event)
         event_dict["event"] = event
 
@@ -42,7 +44,7 @@ def _scrub_credentials(logger, method, event_dict):  # noqa: ARG001
         if key == "event":
             continue
         if isinstance(value, str):
-            for pattern in _CREDENTIAL_PATTERNS:
+            for pattern in CREDENTIAL_PATTERNS:
                 value = pattern.sub(_REDACTED, value)
             event_dict[key] = value
 

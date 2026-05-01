@@ -87,3 +87,22 @@ class TestCredentialScrubbing:
         result = _scrub_credentials(None, None, event_dict)
         assert result["count"] == 42
         assert result["active"] is True
+
+    def test_debug_level_still_scrubs(self, monkeypatch, capsys) -> None:
+        """T5.3 / AC5: Credentials scrubbed even when LINGOSIPS_LOG_LEVEL=DEBUG."""
+        from lingosips.core.logging import configure_logging
+
+        monkeypatch.setenv("LINGOSIPS_LOG_LEVEL", "DEBUG")
+        configure_logging()
+
+        import structlog
+
+        log = structlog.get_logger("test_debug_scrub")
+        log.debug("debug event", api_key="sk-supersecret999")
+
+        captured = capsys.readouterr()
+        assert "sk-supersecret999" not in captured.out
+        assert "sk-supersecret999" not in captured.err
+        # Positive assertion: [REDACTED] must appear — confirms scrubbing fired,
+        # not that the log line was simply suppressed or logging silently disabled.
+        assert "[REDACTED]" in captured.out or "[REDACTED]" in captured.err

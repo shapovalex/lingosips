@@ -692,6 +692,19 @@ wheels = [
 ]
 
 [[package]]
+name = "keyrings-alt"
+version = "5.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jaraco-classes" },
+    { name = "jaraco-context" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5c/7b/e3bf53326e0753bee11813337b1391179582ba5c6851b13e0d9502d15a50/keyrings_alt-5.0.2.tar.gz", hash = "sha256:8f097ebe9dc8b185106502b8cdb066c926d2180e13b4689fd4771a3eab7d69fb", size = 29229, upload-time = "2024-08-14T01:09:28.12Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/0d/9c59313ab43d0858a9a665e80763bd830dc78d5f379afc3815e123c486c2/keyrings.alt-5.0.2-py3-none-any.whl", hash = "sha256:6be74693192f3f37bbb752bfac9b86e6177076b17d2ac12a390f1d6abff8ac7c", size = 17930, upload-time = "2024-08-14T01:09:26.785Z" },
+]
+
+[[package]]
 name = "lingosips"
 version = "0.1.0"
 source = { editable = "." }
@@ -705,6 +718,7 @@ dependencies = [
     { name = "greenlet" },
     { name = "httpx" },
     { name = "keyring" },
+    { name = "keyrings-alt" },
     { name = "llama-cpp-python" },
     { name = "python-multipart" },
     { name = "pyttsx3" },
@@ -734,6 +748,7 @@ requires-dist = [
     { name = "greenlet", specifier = ">=3.5.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "keyring", specifier = ">=25.7.0" },
+    { name = "keyrings-alt", specifier = ">=5.0.2" },
     { name = "llama-cpp-python", specifier = ">=0.3.21" },
     { name = "python-multipart", specifier = ">=0.0.27" },
     { name = "pyttsx3", specifier = ">=2.99" },

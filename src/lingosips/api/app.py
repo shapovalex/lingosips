@@ -5,12 +5,49 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import structlog
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from lingosips.core.logging import CREDENTIAL_PATTERNS as _SCRUB_PATTERNS
+
 STATIC_DIR = Path(__file__).parent.parent / "static"
+
+logger = structlog.get_logger(__name__)
+
+# ── Credential scrubbing helpers ──────────────────────────────────────────────
+# These ensure credential values are never exposed in HTTP error responses.
+# _SCRUB_PATTERNS is imported from core/logging.py (single source of truth).
+
+
+def _scrub_string(s: str) -> str:
+    """Replace credential patterns in a string with [REDACTED]."""
+    for pattern in _SCRUB_PATTERNS:
+        s = pattern.sub("[REDACTED]", s)
+    return s
+
+
+def _scrub_detail(detail: str | dict | None) -> str | dict:
+    """Scrub credential values from an HTTPException detail before returning it.
+
+    Handles str, dict (recursively), and None.  Returns an empty string for
+    None so the caller's RFC 7807 envelope is used instead of an empty dict.
+    """
+    if isinstance(detail, str):
+        return _scrub_string(detail)
+    if isinstance(detail, dict):
+        result: dict = {}
+        for k, v in detail.items():
+            if isinstance(v, (str, dict)):
+                result[k] = _scrub_detail(v)
+            else:
+                result[k] = v
+        return result
+    # None or any other unexpected type → empty string so the caller builds
+    # a proper RFC 7807 envelope rather than returning an empty/invalid body.
+    return ""
 
 
 @asynccontextmanager
@@ -31,20 +68,47 @@ def create_app() -> FastAPI:
         lifespan=_lifespan,
     )
 
-    # RFC 7807 Problem Details exception handler — all errors return JSON, never HTML
+    # RFC 7807 Problem Details exception handler — all errors return JSON, never HTML.
+    # Credential values in exc.detail are scrubbed before the response is sent (AC3).
+    # SPA fallback: for browser 404s (Accept: text/html), serve index.html so
+    # TanStack Router can handle client-side routes like /settings, /practice, etc.
     @application.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        if isinstance(exc.detail, dict):
-            body = exc.detail
+    async def http_exception_handler(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse | FileResponse:
+        if exc.status_code == 404:
+            index_html = STATIC_DIR / "index.html"
+            accept = request.headers.get("accept", "")
+            if index_html.exists() and "text/html" in accept:
+                return FileResponse(str(index_html))
+        scrubbed = _scrub_detail(exc.detail)
+        if isinstance(scrubbed, dict):
+            body = scrubbed
         else:
             body = {
                 "type": f"/errors/{exc.status_code}",
-                "title": str(exc.detail),
+                "title": scrubbed,
                 "status": exc.status_code,
             }
         return JSONResponse(
             status_code=exc.status_code,
             content=body,
+            headers={"Content-Type": "application/problem+json"},
+        )
+
+    # Generic 500 handler — catches all unhandled exceptions.
+    # NEVER exposes the exception message, repr, or traceback to the caller (AC3).
+    # Logs only the exception class name — credential values may be in str(exc).
+    @application.exception_handler(Exception)
+    async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        logger.error("unhandled_exception", exc_type=type(exc).__name__)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "/errors/internal",
+                "title": "Internal server error",
+                "status": 500,
+            },
             headers={"Content-Type": "application/problem+json"},
         )
 
