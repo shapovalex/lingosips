@@ -53,7 +53,7 @@ development_status:
   1-7-card-creation-api-sse-streaming: done
   1-8-card-audio-generation-tts: done
   1-9-cardcreationpanel-component: done
-  1-10-service-status-indicator: backlog
+  1-10-service-status-indicator: done
   epic-1-retrospective: optional
 
   # Epic 2: Vocabulary Ownership & Import

@@ -66,6 +66,7 @@ def create_app() -> FastAPI:
     from lingosips.api.cards import router as cards_router
     from lingosips.api.models import router as models_router
     from lingosips.api.practice import router as practice_router
+    from lingosips.api.services import router as services_router
     from lingosips.api.settings import router as settings_router
 
     application = FastAPI(
@@ -172,11 +173,12 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     # Domain routers — register after health, before static mount
-    # Registration order: health → settings → models → cards → practice → static files mount last
+    # Registration order: health → settings → models → cards → practice → services → static last
     application.include_router(settings_router, prefix="/settings", tags=["settings"])
     application.include_router(models_router, prefix="/models", tags=["models"])
     application.include_router(cards_router, prefix="/cards", tags=["cards"])
     application.include_router(practice_router, prefix="/practice", tags=["practice"])
+    application.include_router(services_router, prefix="/services", tags=["services"])
 
     # Mount static files for production (only when static dir has compiled frontend content)
     if STATIC_DIR.exists() and any(STATIC_DIR.iterdir()):

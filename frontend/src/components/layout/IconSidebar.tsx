@@ -5,6 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { ServiceStatusIndicator } from "@/components/ServiceStatusIndicator"
 
 const NAV_ITEMS = [
   { to: "/", icon: Home, label: "Home", ariaLabel: "Home — card creation" },
@@ -41,9 +42,9 @@ export function IconSidebar() {
         ))}
       </nav>
 
-      {/* Footer area — ServiceStatusIndicator placeholder for Story 1.10 */}
-      <div className="flex flex-col items-center py-4">
-        {/* ServiceStatusIndicator — Story 1.10 */}
+      {/* Footer area — ServiceStatusIndicator */}
+      <div className="flex flex-col items-center py-4 border-t border-zinc-800">
+        <ServiceStatusIndicator />
       </div>
     </div>
   )
