@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+@theme {
+  /* Color palette — zinc-950 dark-first design */
+  --color-background: var(--color-zinc-950);
+  --color-surface: var(--color-zinc-900);
+  --color-border: var(--color-zinc-800);
+  --color-text-primary: var(--color-zinc-50);
+  --color-text-muted: var(--color-zinc-400);
+  --color-accent: var(--color-indigo-500);
+  --color-accent-hover: var(--color-indigo-400);
+  --color-success: var(--color-emerald-500);
+  --color-warning: var(--color-amber-500);
+  --color-error: var(--color-red-400);
+  --color-pronunciation-error: var(--color-amber-400);
+
+  /* Typography */
+  --font-family-sans: "Inter Variable", system-ui, sans-serif;
+  --line-height-body: 1.6;
+  --line-height-heading: 1.2;
+}
+
+/* shadcn/ui dark theme CSS variables */
+:root {
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
+  --card: 240 10% 3.9%;
+  --card-foreground: 0 0% 98%;
+  --popover: 240 10% 3.9%;
+  --popover-foreground: 0 0% 98%;
+  --primary: 0 0% 98%;
+  --primary-foreground: 240 5.9% 10%;
+  --secondary: 240 3.7% 15.9%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 240 3.7% 15.9%;
+  --muted-foreground: 240 5% 64.9%;
+  --accent: 240 3.7% 15.9%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 240 3.7% 15.9%;
+  --input: 240 3.7% 15.9%;
+  --ring: 240 4.9% 83.9%;
+  --radius: 0.5rem;
+  color-scheme: dark;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: "Inter Variable", system-ui, sans-serif;
+  line-height: 1.6;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}

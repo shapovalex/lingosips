@@ -217,4 +217,24 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-.idea
+.idea/
+
+# Generated frontend assets (compiled by `make build`)
+src/lingosips/static/*
+!src/lingosips/static/.gitkeep
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# TanStack Router auto-generated file
+frontend/src/routeTree.gen.ts
+
+# Generated OpenAPI TypeScript types (regenerated at build time)
+frontend/src/lib/api.d.ts
+
+# Test artifacts
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
