@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-29
-last_updated: 2026-04-30  # updated by code-review agent
+last_updated: 2026-05-01  # updated by code-review agent
 project: lingosips
 project_key: NOKEY
 tracking_system: file-system
@@ -49,7 +49,7 @@ development_status:
   1-3-secure-credential-storage-foundation: done
   1-4-first-run-language-onboarding: done
   1-5-ai-provider-abstraction-local-llm-fallback: done
-  1-6-speech-provider-abstraction-local-tts-fallback: backlog
+  1-6-speech-provider-abstraction-local-tts-fallback: done
   1-7-card-creation-api-sse-streaming: backlog
   1-8-card-audio-generation-tts: backlog
   1-9-cardcreationpanel-component: backlog

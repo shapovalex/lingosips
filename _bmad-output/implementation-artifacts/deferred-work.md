@@ -25,3 +25,7 @@
 - **No auth on `/models/status` and `/models/download/progress`** — Any unauthenticated caller can trigger a multi-GB download. No auth system exists in MVP. Add rate-limiting or auth in a future security hardening story.
 
 - **`_qwen_provider` singleton never invalidated if model path changes** — Once set, `_qwen_provider` in `registry.py` is cached forever. If the model filename changes (future settings API), the stale provider is returned. Add invalidation logic when Story 2.3 (Service Configuration) lands. File: `src/lingosips/services/registry.py`
+
+## Deferred from: code review of 1-6-speech-provider-abstraction-local-tts-fallback (2026-05-01)
+
+- **Race condition in `_pyttsx3_provider` singleton** — Two concurrent `get_speech_provider()` calls could both observe `None` and create two `Pyttsx3Provider` instances before either assignment completes. Benign because `Pyttsx3Provider` is stateless (no shared engine), and the FastAPI event loop is single-threaded, making the scenario effectively impossible in the async runtime. Matches the pre-existing `_qwen_provider` pattern. File: `src/lingosips/services/registry.py:90`

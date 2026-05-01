@@ -111,3 +111,106 @@ class TestGetLLMProvider:
         from lingosips.services.credentials import OPENROUTER_MODEL
 
         assert OPENROUTER_MODEL == "openrouter_model"
+
+
+# --- get_speech_provider() tests ---
+
+
+@pytest.mark.anyio
+class TestGetSpeechProvider:
+    def test_returns_azure_when_both_key_and_region_configured(self):
+        from lingosips.services.speech.azure import AzureSpeechProvider
+
+        def mock_cred(k):
+            return {"azure_speech_key": "key-123", "azure_speech_region": "eastus"}.get(k)
+
+        with patch("lingosips.services.registry.get_credential", side_effect=mock_cred):
+            import lingosips.services.registry as reg
+
+            reg._pyttsx3_provider = None
+            provider = reg.get_speech_provider()
+
+        assert isinstance(provider, AzureSpeechProvider)
+        assert provider.provider_name == "Azure Speech"
+
+    def test_returns_pyttsx3_when_no_azure_key(self):
+        from lingosips.services.speech.pyttsx3_local import Pyttsx3Provider
+
+        with patch("lingosips.services.registry.get_credential", return_value=None):
+            import lingosips.services.registry as reg
+
+            reg._pyttsx3_provider = None
+            provider = reg.get_speech_provider()
+
+        assert isinstance(provider, Pyttsx3Provider)
+        assert provider.provider_name == "Local pyttsx3"
+
+    def test_returns_pyttsx3_when_key_set_but_region_missing(self):
+        """Both key AND region required — missing region → pyttsx3 fallback."""
+        from lingosips.services.speech.pyttsx3_local import Pyttsx3Provider
+
+        def mock_cred(k):
+            return "key-123" if k == "azure_speech_key" else None
+
+        with patch("lingosips.services.registry.get_credential", side_effect=mock_cred):
+            import lingosips.services.registry as reg
+
+            reg._pyttsx3_provider = None
+            provider = reg.get_speech_provider()
+
+        assert isinstance(provider, Pyttsx3Provider)
+
+    def test_returns_pyttsx3_when_region_set_but_key_missing(self):
+        """Both key AND region required — missing key → pyttsx3 fallback."""
+        from lingosips.services.speech.pyttsx3_local import Pyttsx3Provider
+
+        def mock_cred(k):
+            return "eastus" if k == "azure_speech_region" else None
+
+        with patch("lingosips.services.registry.get_credential", side_effect=mock_cred):
+            import lingosips.services.registry as reg
+
+            reg._pyttsx3_provider = None
+            provider = reg.get_speech_provider()
+
+        assert isinstance(provider, Pyttsx3Provider)
+
+    def test_empty_string_key_treated_as_no_credential(self):
+        """Empty string from keyring must be treated same as None."""
+        from lingosips.services.speech.pyttsx3_local import Pyttsx3Provider
+
+        with patch("lingosips.services.registry.get_credential", return_value=""):
+            import lingosips.services.registry as reg
+
+            reg._pyttsx3_provider = None
+            provider = reg.get_speech_provider()
+
+        assert isinstance(provider, Pyttsx3Provider)
+
+    def test_pyttsx3_provider_is_cached_singleton(self):
+        """Same Pyttsx3Provider instance returned on repeated calls."""
+        with patch("lingosips.services.registry.get_credential", return_value=None):
+            import lingosips.services.registry as reg
+
+            reg._pyttsx3_provider = None
+            p1 = reg.get_speech_provider()
+            p2 = reg.get_speech_provider()
+
+        assert p1 is p2  # same cached instance
+
+    def test_azure_provider_not_cached_new_instance_per_call(self):
+        """AzureSpeechProvider is NOT a singleton — new instance per call (stateless)."""
+        from lingosips.services.speech.azure import AzureSpeechProvider
+
+        def mock_cred(k):
+            return {"azure_speech_key": "key", "azure_speech_region": "eastus"}.get(k)
+
+        with patch("lingosips.services.registry.get_credential", side_effect=mock_cred):
+            import lingosips.services.registry as reg
+
+            reg._pyttsx3_provider = None
+            p1 = reg.get_speech_provider()
+            p2 = reg.get_speech_provider()
+
+        assert isinstance(p1, AzureSpeechProvider)
+        assert isinstance(p2, AzureSpeechProvider)
