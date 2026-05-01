@@ -1,9 +1,10 @@
-import { Home, BookOpen, Upload, BarChart3, Settings } from "lucide-react"
+import { Home, BookOpen, LibraryBig, Upload, BarChart3, Settings } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 
 const NAV_ITEMS = [
   { to: "/", icon: Home, label: "Home", ariaLabel: "Home — card creation" },
   { to: "/practice", icon: BookOpen, label: "Practice", ariaLabel: "Practice" },
+  { to: "/decks", icon: LibraryBig, label: "Decks", ariaLabel: "Decks — vocabulary organization" },
   { to: "/import", icon: Upload, label: "Import", ariaLabel: "Import" },
   { to: "/progress", icon: BarChart3, label: "Progress", ariaLabel: "Progress" },
   { to: "/settings", icon: Settings, label: "Settings", ariaLabel: "Settings" },

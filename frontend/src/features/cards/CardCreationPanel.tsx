@@ -19,11 +19,19 @@
 
 import { useEffect, useRef, useState } from "react"
 import { Link } from "@tanstack/react-router"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { get, patch, del } from "@/lib/client"
+import { useAppStore } from "@/lib/stores/useAppStore"
+import type { DeckResponse } from "@/features/decks"
 import { useCardStream } from "./useCardStream"
+
+interface SettingsResponse {
+  active_target_language: string
+}
 
 // Shared animation classes applied to each field content element on mount.
 // motion-safe: ensures no animation fires under prefers-reduced-motion: reduce.
@@ -33,11 +41,32 @@ const FIELD_ANIM =
 export function CardCreationPanel() {
   const [inputValue, setInputValue] = useState("")
   const [completedCardId, setCompletedCardId] = useState<number | null>(null)
+  const [selectedDeckId, setSelectedDeckId] = useState<number | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const hasPlayedRef = useRef(false) // prevent audio from replaying on re-render
+  const queryClient = useQueryClient()
 
   const { state, fields, errorMessage, startStream, saveCard, discard, reset } = useCardStream()
+
+  // Fetch settings to know the active language for deck filtering
+  const { data: settings } = useQuery<SettingsResponse>({
+    queryKey: ["settings"],
+    queryFn: () => get<SettingsResponse>("/settings"),
+  })
+  const activeLanguage = settings?.active_target_language ?? "es"
+
+  // Fetch decks for deck-assignment dropdown — only when in populated state
+  const { data: deckOptions } = useQuery<DeckResponse[]>({
+    queryKey: ["decks", activeLanguage],
+    queryFn: () => get<DeckResponse[]>(`/decks?target_language=${activeLanguage}`),
+    enabled: state === "populated",
+  })
+
+  // Reset selectedDeckId when panel returns to idle
+  useEffect(() => {
+    if (state === "idle") setSelectedDeckId(null)
+  }, [state])
 
   // Track completedCardId from the SSE complete event
   useEffect(() => {
@@ -69,11 +98,44 @@ export function CardCreationPanel() {
     }
   }, [state])
 
+  // ── handleSave: assigns card to selected deck (if any) then calls saveCard() ──
+  async function handleSave() {
+    if (selectedDeckId != null && completedCardId != null) {
+      try {
+        await patch(`/cards/${completedCardId}`, { deck_id: selectedDeckId })
+        queryClient.invalidateQueries({ queryKey: ["decks", activeLanguage] })
+      } catch {
+        // Non-fatal: card is already saved; deck assignment failed
+        useAppStore.getState().addNotification({
+          type: "error",
+          message: "Card saved, but deck assignment failed. Edit from the card detail page.",
+        })
+      }
+    }
+    saveCard()
+  }
+
+  // ── handleDiscard: deletes card from DB (implements Story 2.1 TODO) ─────────
+  async function handleDiscard() {
+    const cardId = fields.card_id
+    if (cardId != null) {
+      try {
+        await del(`/cards/${cardId}`)
+        queryClient.invalidateQueries({ queryKey: ["cards"] })
+      } catch {
+        // Non-fatal: orphaned cards are benign
+      }
+    }
+    discard()
+  }
+
   // Input is disabled only during loading, saving, and populated (not error — user can edit before retry)
   const inputDisabled = state === "loading" || state === "saving" || state === "populated"
   const showCardPreview = state === "loading" || state === "populated" || state === "saving"
   const showActionRow = state === "populated"
   const showSkeletons = state === "loading"
+  // Pre-computed outside showActionRow narrowing so TypeScript doesn't flag state==="saving" as dead code
+  const isSaving = state === "saving"
 
   const hasTranslation = Boolean(fields.translation)
   const hasForms = Boolean(fields.forms)
@@ -208,8 +270,26 @@ export function CardCreationPanel() {
 
       {/* Save / Discard action row (AC4) — visible only in populated state */}
       {showActionRow && (
-        <div className="flex gap-2 items-center justify-end">
-          <Button variant="ghost" onClick={discard}>
+        <div className="flex gap-2 items-center justify-end flex-wrap">
+          {/* Deck assignment dropdown — only shown when decks exist */}
+          {deckOptions && deckOptions.length > 0 && (
+            <select
+              aria-label="Assign to deck (optional)"
+              value={selectedDeckId ?? ""}
+              onChange={(e) =>
+                setSelectedDeckId(e.target.value ? Number(e.target.value) : null)
+              }
+              className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-50"
+            >
+              <option value="">No deck</option>
+              {deckOptions.map((deck) => (
+                <option key={deck.id} value={deck.id}>
+                  {deck.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <Button variant="ghost" onClick={handleDiscard}>
             Discard
           </Button>
           {completedCardId != null && (
@@ -221,7 +301,9 @@ export function CardCreationPanel() {
               View card →
             </Link>
           )}
-          <Button onClick={saveCard}>Save card</Button>
+          <Button onClick={handleSave} disabled={isSaving}>
+            Save card
+          </Button>
         </div>
       )}
     </div>

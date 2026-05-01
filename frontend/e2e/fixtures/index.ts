@@ -5,6 +5,7 @@
 
 import { type APIRequestContext, type Page, expect } from "@playwright/test"
 
+
 /** Navigate to the home page and wait for it to load. */
 export async function gotoHome(page: Page): Promise<void> {
   await page.goto("/")
@@ -59,4 +60,27 @@ export async function createSeedCard(request: APIRequestContext): Promise<number
   const match = body.match(/"card_id":\s*(\d+)/)
   if (!match) throw new Error(`No card_id in SSE response. Body: ${body.slice(0, 200)}`)
   return Number(match[1])
+}
+
+/**
+ * Create a seed deck via POST /decks.
+ *
+ * Returns the id of the created deck.
+ * Used by deck management E2E tests (Story 2.2).
+ */
+export async function createSeedDeck(
+  request: APIRequestContext,
+  name: string,
+  lang = "es",
+): Promise<number> {
+  const response = await request.post("http://localhost:7842/decks", {
+    data: { name, target_language: lang },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+  })
+  if (!response.ok()) {
+    const body = await response.text()
+    throw new Error(`createSeedDeck failed (${response.status()}): ${body.slice(0, 200)}`)
+  }
+  const body = await response.json()
+  return body.id as number
 }

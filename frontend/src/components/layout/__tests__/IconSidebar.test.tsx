@@ -42,13 +42,14 @@ describe("IconSidebar", () => {
     expect(nav).toBeInTheDocument()
   })
 
-  it("renders all 5 navigation items scoped within Main navigation", async () => {
+  it("renders all navigation items scoped within Main navigation", async () => {
     renderWithRouter("/")
     const nav = await screen.findByRole("navigation", { name: "Main navigation" })
     const { getByLabelText } = within(nav)
 
     expect(getByLabelText("Home — card creation")).toBeInTheDocument()
     expect(getByLabelText("Practice")).toBeInTheDocument()
+    expect(getByLabelText("Decks — vocabulary organization")).toBeInTheDocument()
     expect(getByLabelText("Import")).toBeInTheDocument()
     expect(getByLabelText("Progress")).toBeInTheDocument()
     expect(getByLabelText("Settings")).toBeInTheDocument()
@@ -62,6 +63,7 @@ describe("IconSidebar", () => {
     const navLabels = [
       "Home — card creation",
       "Practice",
+      "Decks — vocabulary organization",
       "Import",
       "Progress",
       "Settings",

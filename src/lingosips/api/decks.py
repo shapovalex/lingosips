@@ -1,0 +1,187 @@
+"""FastAPI router for deck CRUD — /decks endpoints.
+
+Router only — no business logic. Delegates to core.decks.*().
+All error handling converts ValueError from core into RFC 7807 HTTPException.
+"""
+
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from lingosips.core import decks as core_decks
+from lingosips.core import settings as core_settings
+from lingosips.db.session import get_session
+
+router = APIRouter()
+
+
+class DeckResponse(BaseModel):
+    """Full deck response — returned by all deck endpoints."""
+
+    id: int
+    name: str
+    target_language: str
+    card_count: int
+    due_card_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class DeckCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    target_language: str | None = None  # defaults to active_target_language if omitted
+
+
+class DeckUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+def _deck_row_to_response(row: dict) -> DeckResponse:
+    """Convert a dict from list_decks() to DeckResponse.
+
+    Row keys: 'deck' (ORM object), 'card_count', 'due_card_count'.
+    """
+    deck = row["deck"]
+    return DeckResponse(
+        id=deck.id,
+        name=deck.name,
+        target_language=deck.target_language,
+        card_count=row["card_count"],
+        due_card_count=row["due_card_count"],
+        created_at=deck.created_at,
+        updated_at=deck.updated_at,
+    )
+
+
+def _deck_to_response(deck, card_count: int = 0, due_card_count: int = 0) -> DeckResponse:
+    """Convert a Deck ORM instance to DeckResponse — used by create/patch endpoints."""
+    return DeckResponse(
+        id=deck.id,
+        name=deck.name,
+        target_language=deck.target_language,
+        card_count=card_count,
+        due_card_count=due_card_count,
+        created_at=deck.created_at,
+        updated_at=deck.updated_at,
+    )
+
+
+@router.get("", response_model=list[DeckResponse])
+async def list_decks(
+    target_language: str = Query(
+        ...,
+        min_length=2,
+        max_length=10,
+        description="BCP 47 language code — required",
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> list[DeckResponse]:
+    """List all decks for a target language, with card and due counts.
+
+    target_language is required (422 if absent) — no concept of all languages at once.
+    Returns [] when no decks exist — never null.
+    """
+    rows = await core_decks.list_decks(session, target_language)
+    return [_deck_row_to_response(r) for r in rows]
+
+
+@router.post("", response_model=DeckResponse, status_code=201)
+async def create_deck(
+    request: DeckCreateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> DeckResponse:
+    """Create a new deck. Defaults target_language to active_target_language if omitted.
+
+    Returns 409 Conflict (RFC 7807) if a deck with the same name already exists
+    for the same target language.
+    """
+    target_language = request.target_language
+    if target_language is None:
+        settings = await core_settings.get_or_create_settings(session)
+        target_language = settings.active_target_language
+
+    name = request.name.strip()
+    try:
+        deck = await core_decks.create_deck(name, target_language, session)
+    except ValueError as exc:
+        if "conflict" in str(exc):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "type": "/errors/deck-name-conflict",
+                    "title": "Deck name already exists",
+                    "status": 409,
+                    "detail": (
+                        f"A deck named '{name}' already exists for language '{target_language}'"
+                    ),
+                },
+            )
+        raise
+    return _deck_to_response(deck)
+
+
+@router.patch("/{deck_id}", response_model=DeckResponse)
+async def patch_deck(
+    deck_id: int,
+    request: DeckUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> DeckResponse:
+    """Rename a deck. Only fields present in the request body are changed.
+
+    Returns 404 if deck not found, 409 if new name conflicts with existing deck.
+    """
+    update_data: dict = {}
+    if "name" in request.model_fields_set and request.name is not None:
+        update_data["name"] = request.name.strip()
+
+    try:
+        deck = await core_decks.update_deck(deck_id, update_data, session)
+    except ValueError as exc:
+        if "conflict" in str(exc):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "type": "/errors/deck-name-conflict",
+                    "title": "Deck name already exists",
+                    "status": 409,
+                    "detail": (
+                        f"A deck named '{update_data.get('name')}' already exists for this language"
+                    ),
+                },
+            )
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "type": "/errors/deck-not-found",
+                "title": "Deck not found",
+                "status": 404,
+                "detail": f"Deck {deck_id} does not exist",
+            },
+        )
+    return _deck_to_response(deck)
+
+
+@router.delete("/{deck_id}", status_code=204)
+async def delete_deck(
+    deck_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Delete a deck. Cards belonging to it have deck_id nulled — not deleted.
+
+    Returns 204 No Content on success, 404 if deck not found.
+    """
+    try:
+        await core_decks.delete_deck(deck_id, session)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "type": "/errors/deck-not-found",
+                "title": "Deck not found",
+                "status": 404,
+                "detail": f"Deck {deck_id} does not exist",
+            },
+        )
+    return Response(status_code=204)

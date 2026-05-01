@@ -64,6 +64,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     from lingosips.api.cards import router as cards_router
+    from lingosips.api.decks import router as decks_router
     from lingosips.api.models import router as models_router
     from lingosips.api.practice import router as practice_router
     from lingosips.api.services import router as services_router
@@ -81,7 +82,7 @@ def create_app() -> FastAPI:
     # TanStack Router handles the client-side route instead of the API returning JSON.
     # API fetch calls from client.ts always send Accept: application/json, so they
     # bypass this handler and continue to the router normally.
-    _spa_routes = {"/settings", "/practice", "/import", "/progress"}
+    _spa_routes = {"/settings", "/practice", "/import", "/progress", "/decks"}
 
     @application.middleware("http")
     async def spa_fallback_middleware(request: Request, call_next: Callable[..., Any]) -> Any:
@@ -173,12 +174,13 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     # Domain routers — register after health, before static mount
-    # Registration order: health → settings → models → cards → practice → services → static last
+    # Registration order: health → settings → models → cards → practice → services → decks → static
     application.include_router(settings_router, prefix="/settings", tags=["settings"])
     application.include_router(models_router, prefix="/models", tags=["models"])
     application.include_router(cards_router, prefix="/cards", tags=["cards"])
     application.include_router(practice_router, prefix="/practice", tags=["practice"])
     application.include_router(services_router, prefix="/services", tags=["services"])
+    application.include_router(decks_router, prefix="/decks", tags=["decks"])
 
     # Mount static files for production (only when static dir has compiled frontend content)
     if STATIC_DIR.exists() and any(STATIC_DIR.iterdir()):
