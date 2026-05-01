@@ -29,3 +29,11 @@
 ## Deferred from: code review of 1-6-speech-provider-abstraction-local-tts-fallback (2026-05-01)
 
 - **Race condition in `_pyttsx3_provider` singleton** — Two concurrent `get_speech_provider()` calls could both observe `None` and create two `Pyttsx3Provider` instances before either assignment completes. Benign because `Pyttsx3Provider` is stateless (no shared engine), and the FastAPI event loop is single-threaded, making the scenario effectively impossible in the async runtime. Matches the pre-existing `_qwen_provider` pattern. File: `src/lingosips/services/registry.py:90`
+
+## Deferred from: code review of 1-7-card-creation-api-sse-streaming (2026-05-01)
+
+- **No pagination on `GET /practice/queue`** — Endpoint fetches all due cards with no `LIMIT`. For users with hundreds of due cards this allocates the entire result set in one response. Explicitly deferred to Story 3.1 (`GET /practice/queue` FSRS session management). File: `src/lingosips/api/practice.py:47`
+
+- **Empty LLM response persists card with `translation=""`** — `_parse_llm_response("{}")` returns `{"translation": "", ...}`. An empty string passes the safety filter (empty text is always safe) and the card is persisted with `translation=""`. No product decision exists on minimum field quality requirements. Consider adding a post-parse validation step that rejects empty `translation` with an error SSE event. File: `src/lingosips/core/cards.py:128`
+
+- **AC7 latency SLA not enforced or measured** — AC7 requires the first `field_update` within 500ms (OpenRouter) / 2s (local Qwen). There is no timing measurement, first-token assertion, or monitoring counter in the implementation. The 10s `asyncio.wait_for` timeout bounds the total call but not first-token latency. Needs an observability/monitoring approach — not unit-testable in isolation.

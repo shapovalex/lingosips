@@ -7,6 +7,7 @@ from pathlib import Path
 
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -61,7 +62,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    from lingosips.api.cards import router as cards_router
     from lingosips.api.models import router as models_router
+    from lingosips.api.practice import router as practice_router
     from lingosips.api.settings import router as settings_router
 
     application = FastAPI(
@@ -99,6 +102,32 @@ def create_app() -> FastAPI:
             headers={"Content-Type": "application/problem+json"},
         )
 
+    # RFC 7807 handler for Pydantic validation errors (422 Unprocessable Entity).
+    # FastAPI's built-in 422 handler returns a non-RFC-7807 body; this replaces it.
+    @application.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        """Return RFC 7807 Problem Details for request validation failures."""
+        errors = [
+            {
+                "field": ".".join(str(loc) for loc in e["loc"]),
+                "message": e["msg"],
+                "type": e["type"],
+            }
+            for e in exc.errors()
+        ]
+        return JSONResponse(
+            status_code=422,
+            content={
+                "type": "/errors/validation",
+                "title": "Validation error",
+                "status": 422,
+                "errors": errors,
+            },
+            headers={"Content-Type": "application/problem+json"},
+        )
+
     # Generic 500 handler — catches all unhandled exceptions.
     # NEVER exposes the exception message, repr, or traceback to the caller (AC3).
     # Logs only the exception class name — credential values may be in str(exc).
@@ -121,9 +150,11 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     # Domain routers — register after health, before static mount
-    # Registration order: health → settings → models → static files mount last
+    # Registration order: health → settings → models → cards → practice → static files mount last
     application.include_router(settings_router, prefix="/settings", tags=["settings"])
     application.include_router(models_router, prefix="/models", tags=["models"])
+    application.include_router(cards_router, prefix="/cards", tags=["cards"])
+    application.include_router(practice_router, prefix="/practice", tags=["practice"])
 
     # Mount static files for production (only when static dir has compiled frontend content)
     if STATIC_DIR.exists() and any(STATIC_DIR.iterdir()):
