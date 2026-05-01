@@ -1,9 +1,10 @@
 """FastAPI application factory for lingosips."""
 
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import structlog
 from fastapi import FastAPI, Request
@@ -73,6 +74,27 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=_lifespan,
     )
+
+    # SPA routes that share a path prefix with an API route.
+    # When a browser GETs these with Accept: text/html, serve index.html so
+    # TanStack Router handles the client-side route instead of the API returning JSON.
+    # API fetch calls from client.ts always send Accept: application/json, so they
+    # bypass this handler and continue to the router normally.
+    _spa_routes = {"/settings", "/practice", "/import", "/progress"}
+
+    @application.middleware("http")
+    async def spa_fallback_middleware(request: Request, call_next: Callable[..., Any]) -> Any:
+        """Serve index.html for browser navigations to SPA routes that overlap with API paths."""
+        index_html = STATIC_DIR / "index.html"
+        accept = request.headers.get("accept", "")
+        if (
+            request.method == "GET"
+            and request.url.path in _spa_routes
+            and "text/html" in accept
+            and index_html.exists()
+        ):
+            return FileResponse(str(index_html))
+        return await call_next(request)
 
     # RFC 7807 Problem Details exception handler — all errors return JSON, never HTML.
     # Credential values in exc.detail are scrubbed before the response is sent (AC3).

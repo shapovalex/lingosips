@@ -12,7 +12,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 
 from lingosips.api.app import app
-from lingosips.services.registry import get_llm_provider
+from lingosips.services.registry import get_llm_provider, get_speech_provider
 
 # ── Mock LLM response ─────────────────────────────────────────────────────────
 
@@ -52,6 +52,31 @@ async def mock_llm_provider():
     app.dependency_overrides[get_llm_provider] = lambda: mock
     yield mock
     app.dependency_overrides.pop(get_llm_provider, None)  # NOT .clear()
+
+
+@pytest.fixture
+async def mock_speech_provider(tmp_path, monkeypatch):
+    """Override get_speech_provider with a mock; redirect AUDIO_DIR to tmp_path.
+
+    Uses .pop() at teardown — NOT .clear() — to avoid removing the session
+    override set by the conftest client fixture.
+    """
+    import lingosips.core.cards as core_cards_module
+    from lingosips.services.speech.base import AbstractSpeechProvider
+
+    # Redirect audio file writes to tmp dir so tests don't pollute ~/.lingosips/audio/
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    monkeypatch.setattr(core_cards_module, "AUDIO_DIR", audio_dir)
+
+    mock = AsyncMock(spec=AbstractSpeechProvider)
+    mock.synthesize = AsyncMock(return_value=b"FAKE_WAV_AUDIO_BYTES")
+    mock.provider_name = "MockSpeech"
+    mock.model_name = "mock-tts"
+
+    app.dependency_overrides[get_speech_provider] = lambda: mock
+    yield mock
+    app.dependency_overrides.pop(get_speech_provider, None)  # NOT .clear()
 
 
 # ── SSE parsing helper ────────────────────────────────────────────────────────
@@ -98,18 +123,26 @@ class TestPostCardsStream:
             await conn.execute(text("DELETE FROM cards"))
             await conn.execute(text("DELETE FROM settings"))
 
+    @pytest.fixture(autouse=True)
+    def _auto_mock_speech(self, mock_speech_provider):
+        """Auto-inject speech mock for all tests in this class."""
+        return mock_speech_provider
+
     async def test_success_emits_field_update_events_in_order(
         self, client: AsyncClient, mock_llm_provider
     ) -> None:
-        """AC1: field_update events emitted in order: translation → forms → example_sentences."""
+        """AC1 + AC4: field_update events emitted in order:
+        translation → forms → example_sentences → audio.
+        """
         response = await client.post("/cards/stream", json={"target_word": "melancólico"})
         assert response.status_code == 200
         events = parse_sse_events(response.content)
         field_updates = [e for e in events if e["event"] == "field_update"]
-        assert len(field_updates) == 3
+        assert len(field_updates) == 4  # translation, forms, example_sentences, audio
         assert field_updates[0]["data"]["field"] == "translation"
         assert field_updates[1]["data"]["field"] == "forms"
         assert field_updates[2]["data"]["field"] == "example_sentences"
+        assert field_updates[3]["data"]["field"] == "audio"
 
     async def test_success_emits_complete_event_with_card_id(
         self, client: AsyncClient, mock_llm_provider
@@ -240,3 +273,121 @@ class TestPostCardsStream:
         assert queue_resp.status_code == 200
         queue_ids = [c["id"] for c in queue_resp.json()]
         assert card_id in queue_ids
+
+    async def test_audio_field_update_emitted_before_complete(
+        self, client: AsyncClient, mock_llm_provider
+    ) -> None:
+        """AC4: field_update event for 'audio' is emitted before the complete event."""
+        response = await client.post("/cards/stream", json={"target_word": "melancólico"})
+        assert response.status_code == 200
+        events = parse_sse_events(response.content)
+
+        audio_events = [
+            e for e in events if e["event"] == "field_update" and e["data"].get("field") == "audio"
+        ]
+        complete_events = [e for e in events if e["event"] == "complete"]
+
+        assert len(audio_events) == 1
+        assert len(complete_events) == 1
+
+        audio_idx = next(
+            i
+            for i, e in enumerate(events)
+            if e["event"] == "field_update" and e["data"].get("field") == "audio"
+        )
+        complete_idx = next(i for i, e in enumerate(events) if e["event"] == "complete")
+        assert audio_idx < complete_idx
+
+    async def test_audio_url_value_matches_endpoint_pattern(
+        self, client: AsyncClient, mock_llm_provider
+    ) -> None:
+        """AC4: audio field_update value starts with '/cards/' and ends with '/audio'."""
+        response = await client.post("/cards/stream", json={"target_word": "melancólico"})
+        events = parse_sse_events(response.content)
+
+        audio_events = [
+            e for e in events if e["event"] == "field_update" and e["data"].get("field") == "audio"
+        ]
+        assert len(audio_events) == 1
+        url = audio_events[0]["data"]["value"]
+        assert url.startswith("/cards/")
+        assert url.endswith("/audio")
+
+    async def test_tts_failure_card_created_no_stream_error(
+        self, client: AsyncClient, mock_llm_provider, tmp_path, monkeypatch
+    ) -> None:
+        """AC5: TTS failure → complete event still emitted, no error event, no 500."""
+        import lingosips.core.cards as core_cards_module
+        from lingosips.services.speech.base import AbstractSpeechProvider
+
+        audio_dir = tmp_path / "audio_fail_api"
+        audio_dir.mkdir()
+        monkeypatch.setattr(core_cards_module, "AUDIO_DIR", audio_dir)
+
+        mock_speech_fail = AsyncMock(spec=AbstractSpeechProvider)
+        mock_speech_fail.synthesize = AsyncMock(side_effect=RuntimeError("pyttsx3 init failed"))
+        app.dependency_overrides[get_speech_provider] = lambda: mock_speech_fail
+
+        try:
+            response = await client.post("/cards/stream", json={"target_word": "test"})
+        finally:
+            app.dependency_overrides.pop(get_speech_provider, None)
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.content)
+
+        error_events = [e for e in events if e["event"] == "error"]
+        assert len(error_events) == 0
+
+        complete_events = [e for e in events if e["event"] == "complete"]
+        assert len(complete_events) == 1
+
+
+@pytest.mark.anyio
+class TestGetCardAudio:
+    """Tests for GET /cards/{card_id}/audio (AC: 2, 3, 4)."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_cards(self, test_engine) -> None:
+        from sqlalchemy import text
+
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    async def test_audio_served_when_file_exists(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        """200 + audio/wav content-type when audio file present."""
+        import lingosips.api.cards as api_cards_module
+        import lingosips.core.cards as core_cards_module
+
+        audio_dir = tmp_path / "audio"
+        audio_dir.mkdir()
+        monkeypatch.setattr(core_cards_module, "AUDIO_DIR", audio_dir)
+        monkeypatch.setattr(api_cards_module, "AUDIO_DIR", audio_dir)
+
+        # Write a fake WAV file
+        fake_wav = b"RIFF....WAVEfmt "
+        (audio_dir / "42.wav").write_bytes(fake_wav)
+
+        response = await client.get("/cards/42/audio")
+        assert response.status_code == 200
+        assert "audio/wav" in response.headers.get("content-type", "")
+        assert response.content == fake_wav
+
+    async def test_audio_not_found_returns_404_rfc7807(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        """404 with RFC 7807 body when no audio file exists."""
+        import lingosips.api.cards as api_cards_module
+
+        audio_dir = tmp_path / "audio_empty"
+        audio_dir.mkdir()
+        monkeypatch.setattr(api_cards_module, "AUDIO_DIR", audio_dir)
+
+        response = await client.get("/cards/999/audio")
+        assert response.status_code == 404
+        body = response.json()
+        assert body["type"] == "/errors/audio-not-found"
+        assert body["status"] == 404

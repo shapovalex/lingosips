@@ -24,6 +24,7 @@ def main() -> None:
     data_dir = Path.home() / ".lingosips"
     data_dir.mkdir(exist_ok=True)
     (data_dir / "models").mkdir(exist_ok=True)
+    (data_dir / "audio").mkdir(exist_ok=True)
 
     # 3. Run Alembic migrations — blocking; uvicorn must NOT start until complete
     try:

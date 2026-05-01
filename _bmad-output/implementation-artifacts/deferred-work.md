@@ -30,6 +30,14 @@
 
 - **Race condition in `_pyttsx3_provider` singleton** — Two concurrent `get_speech_provider()` calls could both observe `None` and create two `Pyttsx3Provider` instances before either assignment completes. Benign because `Pyttsx3Provider` is stateless (no shared engine), and the FastAPI event loop is single-threaded, making the scenario effectively impossible in the async runtime. Matches the pre-existing `_qwen_provider` pattern. File: `src/lingosips/services/registry.py:90`
 
+## Deferred from: code review of 1-8-card-audio-generation-tts (2026-05-01)
+
+- **Business logic in `get_card_audio` router** — Path construction and `audio_path.exists()` check live directly in the router (`api/cards.py:68`), violating the "routers delegate to core" rule. Spec explicitly defines this design and justifies it (consistent with ModelManager pattern, avoids unnecessary DB query). Revisit if a second consumer of audio path logic emerges. File: `src/lingosips/api/cards.py:68`
+
+- **TOCTOU race between `exists()` check and `FileResponse` delivery** — `audio_path.exists()` passes, then the file could theoretically be deleted before Starlette streams it. `FileResponse` lazy-loads during ASGI response, so no `FileNotFoundError` is catchable at construction time. Negligible for a local single-user app. File: `src/lingosips/api/cards.py:69`
+
+- **Autouse fixture ordering fragility in `test_tts_failure_card_created_no_stream_error`** — The test overrides `app.dependency_overrides[get_speech_provider]` and removes it in `finally`, leaving the autouse fixture's teardown `.pop()` as a no-op. Works correctly via safe-pop semantics but the teardown order dependency is fragile. Refactor: configure the failure via the autouse mock rather than setting a second override. File: `tests/api/test_cards.py:316`
+
 ## Deferred from: code review of 1-7-card-creation-api-sse-streaming (2026-05-01)
 
 - **No pagination on `GET /practice/queue`** — Endpoint fetches all due cards with no `LIMIT`. For users with hundreds of due cards this allocates the entire result set in one response. Explicitly deferred to Story 3.1 (`GET /practice/queue` FSRS session management). File: `src/lingosips/api/practice.py:47`

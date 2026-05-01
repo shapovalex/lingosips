@@ -25,6 +25,33 @@ export default defineConfig({
       "/settings": {
         target: "http://127.0.0.1:7842",
         changeOrigin: true,
+        // Bypass proxy for browser navigations (Accept: text/html) — serve SPA.
+        // API fetch calls from client.ts always send Accept: application/json,
+        // so those continue to proxy to the backend correctly.
+        bypass(req) {
+          const accept = req.headers.accept ?? ""
+          if (accept.includes("text/html")) return "/index.html"
+        },
+      },
+      "/cards": {
+        target: "http://127.0.0.1:7842",
+        changeOrigin: true,
+        bypass(req) {
+          const accept = req.headers.accept ?? ""
+          if (accept.includes("text/html")) return "/index.html"
+        },
+      },
+      "/practice": {
+        target: "http://127.0.0.1:7842",
+        changeOrigin: true,
+        bypass(req) {
+          const accept = req.headers.accept ?? ""
+          if (accept.includes("text/html")) return "/index.html"
+        },
+      },
+      "/models": {
+        target: "http://127.0.0.1:7842",
+        changeOrigin: true,
       },
       "/openapi.json": {
         target: "http://127.0.0.1:7842",

@@ -7,6 +7,7 @@ API layer (api/cards.py) delegates to create_card_stream().
 import asyncio
 import json
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import structlog
 from pydantic import BaseModel, Field, field_validator
@@ -15,8 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lingosips.core import safety
 from lingosips.db.models import Card
 from lingosips.services.llm.base import AbstractLLMProvider, LLMMessage
+from lingosips.services.speech.base import AbstractSpeechProvider
 
 logger = structlog.get_logger(__name__)
+
+AUDIO_DIR = Path.home() / ".lingosips" / "audio"
+AUDIO_SYNTHESIS_TIMEOUT = 30.0  # seconds — generous for slow local TTS
 
 
 # ── Request model ─────────────────────────────────────────────────────────────
@@ -147,6 +152,7 @@ async def create_card_stream(
     llm: AbstractLLMProvider,
     session: AsyncSession,
     target_language: str,
+    speech: AbstractSpeechProvider,
 ) -> AsyncGenerator[str, None]:
     """Card creation pipeline — yields SSE-formatted event strings.
 
@@ -154,9 +160,12 @@ async def create_card_stream(
     1. Call LLM.complete() with timeout → yields field_update events
     2. Apply safety filter to each field
     3. Persist card to DB with FSRS initial state
-    4. Yield complete event with card_id
+    4. Refresh card to get DB-assigned id
+    5. TTS audio generation (soft failure — never blocks card creation)
+    6. Yield complete event with card_id
 
     On any failure: yield error event and return (never raise).
+    TTS failure is non-fatal — card is saved with audio_url=None.
     """
     try:
         # Step 1: Call LLM with 10s timeout (NFR4 — local Qwen SLA)
@@ -215,6 +224,33 @@ async def create_card_stream(
         session.add(card)
         await session.commit()
         await session.refresh(card)
+
+        # Step 5: Audio generation (TTS) — soft failure — never blocks card creation
+        try:
+            AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+            audio_bytes = await asyncio.wait_for(
+                speech.synthesize(request.target_word, target_language),
+                timeout=AUDIO_SYNTHESIS_TIMEOUT,
+            )
+            if not audio_bytes:
+                raise RuntimeError("synthesize() returned empty audio bytes")
+            audio_path = AUDIO_DIR / f"{card.id}.wav"
+            await asyncio.to_thread(audio_path.write_bytes, audio_bytes)
+            card.audio_url = f"/cards/{card.id}/audio"
+            await session.commit()
+            logger.info(
+                "cards.audio_generated",
+                card_id=card.id,
+                audio_bytes=len(audio_bytes),
+            )
+            yield _sse_event("field_update", {"field": "audio", "value": card.audio_url})
+        except Exception as exc:
+            logger.warning(
+                "cards.audio_failed",
+                card_id=card.id,
+                exc_type=type(exc).__name__,
+            )
+            # TTS failure is non-fatal: card is already saved with audio_url=None
 
         logger.info("cards.created", card_id=card.id, target_word=request.target_word)
         yield _sse_event("complete", {"card_id": card.id})
