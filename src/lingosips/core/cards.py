@@ -7,10 +7,12 @@ API layer (api/cards.py) delegates to create_card_stream().
 import asyncio
 import json
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lingosips.core import safety
@@ -259,3 +261,52 @@ async def create_card_stream(
         # Catch-all: never let exceptions escape the generator (would corrupt SSE stream)
         logger.error("cards.unexpected_error", exc_type=type(exc).__name__)
         yield _sse_event("error", {"message": "Unexpected error during card creation"})
+
+
+# ── CRUD helpers ──────────────────────────────────────────────────────────────
+
+
+async def get_card(card_id: int, session: AsyncSession) -> Card:
+    """Fetch a card by ID. Raises ValueError if not found (router converts to 404)."""
+    result = await session.execute(select(Card).where(Card.id == card_id))
+    card = result.scalar_one_or_none()
+    if card is None:
+        raise ValueError(f"Card {card_id} does not exist")
+    return card
+
+
+async def update_card(
+    card_id: int,
+    update_data: dict,
+    session: AsyncSession,
+) -> Card:
+    """Partially update a card. Only keys present in update_data are changed.
+
+    Raises ValueError if card not found.
+    """
+    card = await get_card(card_id, session)
+
+    if "translation" in update_data:
+        card.translation = update_data["translation"]
+    if "personal_note" in update_data:
+        card.personal_note = update_data["personal_note"]
+    if "deck_id" in update_data:
+        card.deck_id = update_data["deck_id"]
+    if "forms" in update_data:
+        forms_val = update_data["forms"]
+        card.forms = json.dumps(forms_val) if forms_val is not None else None
+    if "example_sentences" in update_data:
+        es_val = update_data["example_sentences"]
+        card.example_sentences = json.dumps(es_val) if es_val is not None else None
+
+    card.updated_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(card)
+    return card
+
+
+async def delete_card(card_id: int, session: AsyncSession) -> None:
+    """Delete a card by ID. Raises ValueError if not found."""
+    card = await get_card(card_id, session)
+    await session.delete(card)
+    await session.commit()

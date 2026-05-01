@@ -1,23 +1,127 @@
-"""FastAPI router for card creation — POST /cards/stream and GET /cards/{card_id}/audio.
+"""FastAPI router for card CRUD — GET/PATCH/DELETE /cards/{card_id} + POST /cards/stream.
 
-Router only — no business logic. Delegates to core.cards.create_card_stream().
+Router only — no business logic. Delegates to core.cards.*().
 """
 
+import json
 from collections.abc import AsyncGenerator
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lingosips.core import cards as core_cards
 from lingosips.core import settings as core_settings
 from lingosips.core.cards import AUDIO_DIR, CardCreateRequest
+from lingosips.db.models import Card
 from lingosips.db.session import get_session
 from lingosips.services.llm.base import AbstractLLMProvider
 from lingosips.services.registry import get_llm_provider, get_speech_provider
 from lingosips.services.speech.base import AbstractSpeechProvider
 
 router = APIRouter()
+
+
+# ── Pydantic models ───────────────────────────────────────────────────────────
+
+
+class CardFormsData(BaseModel):
+    """Grammatical forms for a card — parsed from DB JSON string."""
+
+    gender: str | None = None
+    article: str | None = None
+    plural: str | None = None
+    conjugations: dict = Field(default_factory=dict)
+
+
+class CardResponse(BaseModel):
+    """Full card response shape — returned by GET and PATCH /cards/{card_id}."""
+
+    id: int
+    target_word: str
+    translation: str | None
+    forms: CardFormsData | None
+    example_sentences: list[str]
+    audio_url: str | None
+    personal_note: str | None
+    image_url: str | None
+    image_skipped: bool
+    card_type: str
+    deck_id: int | None
+    target_language: str
+    fsrs_state: str
+    due: datetime
+    stability: float
+    difficulty: float
+    reps: int
+    lapses: int
+    last_review: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CardUpdateRequest(BaseModel):
+    """Partial update request for PATCH /cards/{card_id}.
+
+    Only fields present in the request body are updated (checked via model_fields_set).
+    """
+
+    translation: str | None = Field(default=None, min_length=1, max_length=2000)
+    forms: CardFormsData | None = None
+    example_sentences: list[str] | None = None
+    personal_note: str | None = Field(default=None, max_length=5000)
+    deck_id: int | None = None
+
+
+# ── Response conversion helper ────────────────────────────────────────────────
+
+
+def _card_to_response(card: Card) -> CardResponse:
+    """Convert a Card ORM instance to a CardResponse, parsing JSON fields."""
+    forms: CardFormsData | None = None
+    if card.forms:
+        try:
+            forms = CardFormsData(**json.loads(card.forms))
+        except (json.JSONDecodeError, TypeError, ValueError, ValidationError):
+            pass  # Return None if forms JSON is malformed
+
+    example_sentences: list[str] = []
+    if card.example_sentences:
+        try:
+            parsed = json.loads(card.example_sentences)
+            if isinstance(parsed, list):
+                example_sentences = [str(s) for s in parsed]
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return CardResponse(
+        id=card.id,
+        target_word=card.target_word,
+        translation=card.translation,
+        forms=forms,
+        example_sentences=example_sentences,
+        audio_url=card.audio_url,
+        personal_note=card.personal_note,
+        image_url=card.image_url,
+        image_skipped=card.image_skipped,
+        card_type=card.card_type,
+        deck_id=card.deck_id,
+        target_language=card.target_language,
+        fsrs_state=card.fsrs_state,
+        due=card.due,
+        stability=card.stability,
+        difficulty=card.difficulty,
+        reps=card.reps,
+        lapses=card.lapses,
+        last_review=card.last_review,
+        created_at=card.created_at,
+        updated_at=card.updated_at,
+    )
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
 @router.post("/stream")
@@ -57,6 +161,32 @@ async def create_card_stream(
     )
 
 
+@router.get("/{card_id}", response_model=CardResponse)
+async def get_card(
+    card_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> CardResponse:
+    """Fetch full card details by ID.
+
+    Returns CardResponse with all fields, including forms/example_sentences
+    parsed from their DB JSON string representation.
+    404 RFC 7807 if card does not exist.
+    """
+    try:
+        card = await core_cards.get_card(card_id, session)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "type": "/errors/card-not-found",
+                "title": "Card not found",
+                "status": 404,
+                "detail": f"Card {card_id} does not exist",
+            },
+        )
+    return _card_to_response(card)
+
+
 @router.get("/{card_id}/audio")
 async def get_card_audio(card_id: int) -> FileResponse:
     """Serve WAV audio for a card.
@@ -77,3 +207,68 @@ async def get_card_audio(card_id: int) -> FileResponse:
             },
         )
     return FileResponse(audio_path, media_type="audio/wav")
+
+
+@router.patch("/{card_id}", response_model=CardResponse)
+async def patch_card(
+    card_id: int,
+    request: CardUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> CardResponse:
+    """Partially update a card — only fields present in the request body are changed.
+
+    Uses model_fields_set to detect which fields were explicitly provided.
+    Returns the full updated CardResponse.
+    404 if card does not exist, 422 if field validation fails.
+    """
+    # Build update dict from only the fields explicitly provided in the request
+    update_data: dict = {}
+    if "translation" in request.model_fields_set:
+        update_data["translation"] = request.translation
+    if "personal_note" in request.model_fields_set:
+        update_data["personal_note"] = request.personal_note
+    if "deck_id" in request.model_fields_set:
+        update_data["deck_id"] = request.deck_id
+    if "forms" in request.model_fields_set:
+        update_data["forms"] = request.forms.model_dump() if request.forms else None
+    if "example_sentences" in request.model_fields_set:
+        update_data["example_sentences"] = request.example_sentences
+
+    try:
+        card = await core_cards.update_card(card_id, update_data, session)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "type": "/errors/card-not-found",
+                "title": "Card not found",
+                "status": 404,
+                "detail": f"Card {card_id} does not exist",
+            },
+        )
+    return _card_to_response(card)
+
+
+@router.delete("/{card_id}", status_code=204)
+async def delete_card(
+    card_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Delete a card by ID.
+
+    Returns 204 No Content on success.
+    404 RFC 7807 if card does not exist.
+    """
+    try:
+        await core_cards.delete_card(card_id, session)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "type": "/errors/card-not-found",
+                "title": "Card not found",
+                "status": 404,
+                "detail": f"Card {card_id} does not exist",
+            },
+        )
+    return Response(status_code=204)

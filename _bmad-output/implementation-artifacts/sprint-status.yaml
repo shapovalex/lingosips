@@ -57,8 +57,8 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: Vocabulary Ownership & Import
-  epic-2: backlog
-  2-1-card-detail-editing-notes: backlog
+  epic-2: in-progress
+  2-1-card-detail-editing-notes: done
   2-2-deck-management-multi-language: backlog
   2-3-service-configuration-system-defaults: backlog
   2-4-import-pipeline-anki-text-url: backlog

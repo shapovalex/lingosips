@@ -67,10 +67,12 @@ class ModelManager:
             if self._downloading:
                 # Find existing running job and return its ID
                 result = await session.execute(
-                    select(Job).where(
+                    select(Job)
+                    .where(
                         Job.job_type == "model_download",
                         Job.status == "running",
-                    ).limit(1)
+                    )
+                    .limit(1)
                 )
                 existing = result.scalars().first()
                 if existing and existing.id:
@@ -112,9 +114,7 @@ class ModelManager:
     ) -> None:
         """Blocking download — runs in background thread. Updates Job progress."""
 
-        async def _update_job(
-            done: int, total: int, item: str, status: str = "running"
-        ) -> None:
+        async def _update_job(done: int, total: int, item: str, status: str = "running") -> None:
             async with session_factory() as s:
                 result = await s.execute(select(Job).where(Job.id == job_id))
                 job = result.scalars().first()

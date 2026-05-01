@@ -21,9 +21,7 @@ class TestGetSettings:
         async with test_engine.begin() as conn:
             await conn.execute(text("DELETE FROM settings"))
 
-    async def test_get_settings_creates_default_on_empty_db(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_get_settings_creates_default_on_empty_db(self, client: AsyncClient) -> None:
         """T4.2: empty DB → 200, onboarding_completed=false, native="en", target="es"."""
         response = await client.get("/settings")
         assert response.status_code == 200
@@ -115,9 +113,7 @@ class TestPutSettings:
         get_resp = await client.get("/settings")
         assert get_resp.json()["active_target_language"] == "de"
 
-    async def test_put_settings_marks_onboarding_complete(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_put_settings_marks_onboarding_complete(self, client: AsyncClient) -> None:
         """T4.7: PUT {"onboarding_completed": true} → 200, field persisted."""
         response = await client.put("/settings", json={"onboarding_completed": True})
         assert response.status_code == 200

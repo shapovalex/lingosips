@@ -81,9 +81,7 @@ async def _model_download_sse(session: AsyncSession) -> AsyncIterator[str]:
             return
 
         if current_job.status == "failed":
-            error_data = json.dumps(
-                {"message": current_job.error_message or "Download failed"}
-            )
+            error_data = json.dumps({"message": current_job.error_message or "Download failed"})
             yield f"event: error\ndata: {error_data}\n\n"
             return
 
@@ -107,9 +105,7 @@ async def get_model_status(session: AsyncSession = Depends(get_session)) -> Mode
     """Return current status of the local Qwen model."""
     ready = _model_manager.is_ready()
     result = await session.execute(
-        select(Job)
-        .where(Job.job_type == "model_download", Job.status == "running")
-        .limit(1)
+        select(Job).where(Job.job_type == "model_download", Job.status == "running").limit(1)
     )
     active_job = result.scalars().first()
     progress_pct = None

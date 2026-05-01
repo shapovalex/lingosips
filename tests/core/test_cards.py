@@ -18,16 +18,18 @@ class TestParseCardResponse:
         """Clean JSON object returned without code fences."""
         from lingosips.core.cards import _parse_llm_response
 
-        raw = json.dumps({
-            "translation": "melancholic",
-            "forms": {
-                "gender": "masculine",
-                "article": "el",
-                "plural": "melancólicos",
-                "conjugations": {},
-            },
-            "example_sentences": ["Sentence one.", "Sentence two."],
-        })
+        raw = json.dumps(
+            {
+                "translation": "melancholic",
+                "forms": {
+                    "gender": "masculine",
+                    "article": "el",
+                    "plural": "melancólicos",
+                    "conjugations": {},
+                },
+                "example_sentences": ["Sentence one.", "Sentence two."],
+            }
+        )
         result = _parse_llm_response(raw)
         assert result["translation"] == "melancholic"
         assert result["forms"]["gender"] == "masculine"
@@ -37,11 +39,13 @@ class TestParseCardResponse:
         """JSON wrapped in ```json ... ``` code fence is handled."""
         from lingosips.core.cards import _parse_llm_response
 
-        payload = json.dumps({
-            "translation": "sad",
-            "forms": {"gender": None, "article": None, "plural": None, "conjugations": {}},
-            "example_sentences": ["Es triste.", "Fue muy triste."],
-        })
+        payload = json.dumps(
+            {
+                "translation": "sad",
+                "forms": {"gender": None, "article": None, "plural": None, "conjugations": {}},
+                "example_sentences": ["Es triste.", "Fue muy triste."],
+            }
+        )
         raw = f"```json\n{payload}\n```"
         result = _parse_llm_response(raw)
         assert result["translation"] == "sad"
@@ -68,11 +72,13 @@ class TestParseCardResponse:
         """JSON wrapped by preamble/trailing text is extracted correctly."""
         from lingosips.core.cards import _parse_llm_response
 
-        payload = json.dumps({
-            "translation": "test",
-            "forms": {"gender": None, "article": None, "plural": None, "conjugations": {}},
-            "example_sentences": ["A.", "B."],
-        })
+        payload = json.dumps(
+            {
+                "translation": "test",
+                "forms": {"gender": None, "article": None, "plural": None, "conjugations": {}},
+                "example_sentences": ["A.", "B."],
+            }
+        )
         raw = f"Here is the answer: {payload} Hope that helps!"
         result = _parse_llm_response(raw)
         assert result["translation"] == "test"
@@ -85,11 +91,13 @@ class TestParseCardResponse:
         """
         from lingosips.core.cards import _parse_llm_response
 
-        payload = json.dumps({
-            "translation": "happy",
-            "forms": {"gender": None, "article": None, "plural": None, "conjugations": {}},
-            "example_sentences": ["Es feliz.", "Fue feliz."],
-        })
+        payload = json.dumps(
+            {
+                "translation": "happy",
+                "forms": {"gender": None, "article": None, "plural": None, "conjugations": {}},
+                "example_sentences": ["Es feliz.", "Fue feliz."],
+            }
+        )
         # Trailing text that itself ends with '}' — would break rfind-based extraction
         raw = f"{payload} (see grammar note {{end}})"
         result = _parse_llm_response(raw)
@@ -162,19 +170,23 @@ class TestCreateCardStream:
         from lingosips.services.llm.base import AbstractLLMProvider
 
         mock = AsyncMock(spec=AbstractLLMProvider)
-        mock.complete = AsyncMock(return_value=json.dumps({
-            "translation": "melancholic",
-            "forms": {
-                "gender": "masculine",
-                "article": "el",
-                "plural": "melancólicos",
-                "conjugations": {},
-            },
-            "example_sentences": [
-                "Tenía un aire melancólico.",
-                "Era un día melancólico.",
-            ],
-        }))
+        mock.complete = AsyncMock(
+            return_value=json.dumps(
+                {
+                    "translation": "melancholic",
+                    "forms": {
+                        "gender": "masculine",
+                        "article": "el",
+                        "plural": "melancólicos",
+                        "conjugations": {},
+                    },
+                    "example_sentences": [
+                        "Tenía un aire melancólico.",
+                        "Era un día melancólico.",
+                    ],
+                }
+            )
+        )
         mock.provider_name = "MockLLM"
         mock.model_name = "mock-model"
         return mock
@@ -383,9 +395,7 @@ class TestCreateCardStream:
         assert audio_events[0]["data"]["value"].startswith("/cards/")
         assert audio_events[0]["data"]["value"].endswith("/audio")
 
-    async def test_audio_url_persisted_to_card_in_db(
-        self, mock_llm, mock_speech, session
-    ) -> None:
+    async def test_audio_url_persisted_to_card_in_db(self, mock_llm, mock_speech, session) -> None:
         """AC1: card.audio_url is set in DB after successful TTS."""
         from sqlalchemy import select
 
@@ -434,9 +444,7 @@ class TestCreateCardStream:
         assert len(complete_events) == 1
         # No audio field_update
         audio_updates = [
-            e
-            for e in events
-            if e["event"] == "field_update" and e["data"].get("field") == "audio"
+            e for e in events if e["event"] == "field_update" and e["data"].get("field") == "audio"
         ]
         assert len(audio_updates) == 0
         # AC5: audio_url remains None in DB — card saved without audio
@@ -477,9 +485,7 @@ class TestCreateCardStream:
         assert len(complete_events) == 1
         # No audio field_update — empty WAV not written to disk
         audio_updates = [
-            e
-            for e in events
-            if e["event"] == "field_update" and e["data"].get("field") == "audio"
+            e for e in events if e["event"] == "field_update" and e["data"].get("field") == "audio"
         ]
         assert len(audio_updates) == 0
         # No empty file written to disk
@@ -522,9 +528,7 @@ class TestCreateCardStream:
         assert len(complete_events) == 1
         # No audio field_update
         audio_updates = [
-            e
-            for e in events
-            if e["event"] == "field_update" and e["data"].get("field") == "audio"
+            e for e in events if e["event"] == "field_update" and e["data"].get("field") == "audio"
         ]
         assert len(audio_updates) == 0
         # AC5: audio_url remains None in DB — card saved without audio

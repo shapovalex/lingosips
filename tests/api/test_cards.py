@@ -10,25 +10,29 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from lingosips.api.app import app
+from lingosips.db.models import Card
 from lingosips.services.registry import get_llm_provider, get_speech_provider
 
 # ── Mock LLM response ─────────────────────────────────────────────────────────
 
-MOCK_LLM_JSON_RESPONSE = json.dumps({
-    "translation": "melancholic",
-    "forms": {
-        "gender": "masculine",
-        "article": "el",
-        "plural": "melancólicos",
-        "conjugations": {},
-    },
-    "example_sentences": [
-        "Tenía un aire melancólico.",
-        "Era un día melancólico.",
-    ],
-})
+MOCK_LLM_JSON_RESPONSE = json.dumps(
+    {
+        "translation": "melancholic",
+        "forms": {
+            "gender": "masculine",
+            "article": "el",
+            "plural": "melancólicos",
+            "conjugations": {},
+        },
+        "example_sentences": [
+            "Tenía un aire melancólico.",
+            "Era un día melancólico.",
+        ],
+    }
+)
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -234,9 +238,7 @@ class TestPostCardsStream:
         assert len(error_events) == 1
         assert error_events[0]["data"]["message"] == "Local Qwen timeout after 10s"
 
-    async def test_safety_filter_blocks_content_emits_error(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_safety_filter_blocks_content_emits_error(self, client: AsyncClient) -> None:
         """AC2: blocked content → error event emitted, no card persisted."""
         mock = AsyncMock()
         mock.complete = AsyncMock(return_value=MOCK_LLM_JSON_RESPONSE)
@@ -391,3 +393,316 @@ class TestGetCardAudio:
         body = response.json()
         assert body["type"] == "/errors/audio-not-found"
         assert body["status"] == 404
+
+
+# ── Seed fixture ──────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+async def seed_card(session: AsyncSession) -> Card:
+    """Insert a Card directly into the test DB — no LLM mock needed."""
+    card = Card(
+        target_word="melancólico",
+        translation="melancholic",
+        forms=json.dumps(
+            {"gender": "masculine", "article": "el", "plural": "melancólicos", "conjugations": {}}
+        ),
+        example_sentences=json.dumps(["Tenía un aire melancólico.", "Era un día melancólico."]),
+        target_language="es",
+    )
+    session.add(card)
+    await session.commit()
+    await session.refresh(card)
+    return card
+
+
+# ── T2: GET /cards/{card_id} ──────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+class TestGetCard:
+    """Tests for GET /cards/{card_id} (AC: 1, 6)."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_cards(self, test_engine) -> None:
+        """Clean card and settings tables before each test."""
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    async def test_get_card_success(self, client: AsyncClient, seed_card: Card) -> None:
+        """200 + all fields returned for existing card."""
+        response = await client.get(f"/cards/{seed_card.id}")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == seed_card.id
+        assert body["target_word"] == "melancólico"
+        assert body["translation"] == "melancholic"
+        assert isinstance(body["forms"], dict)
+        assert isinstance(body["example_sentences"], list)
+        assert body["target_language"] == "es"
+        assert "fsrs_state" in body
+        assert "due" in body
+        assert "stability" in body
+        assert "difficulty" in body
+        assert "reps" in body
+        assert "lapses" in body
+        assert "created_at" in body
+        assert "updated_at" in body
+
+    async def test_get_card_not_found_returns_404_rfc7807(self, client: AsyncClient) -> None:
+        """404 with RFC 7807 body when card does not exist."""
+        response = await client.get("/cards/99999")
+        assert response.status_code == 404
+        body = response.json()
+        assert body["type"] == "/errors/card-not-found"
+        assert body["status"] == 404
+        assert "99999" in body["detail"]
+
+    async def test_get_card_forms_parsed_as_object_not_string(
+        self, client: AsyncClient, seed_card: Card
+    ) -> None:
+        """forms field must be a dict (not a raw JSON string)."""
+        response = await client.get(f"/cards/{seed_card.id}")
+        assert response.status_code == 200
+        body = response.json()
+        assert isinstance(body["forms"], dict)
+        assert body["forms"]["gender"] == "masculine"
+        assert body["forms"]["article"] == "el"
+
+    async def test_get_card_example_sentences_parsed_as_list(
+        self, client: AsyncClient, seed_card: Card
+    ) -> None:
+        """example_sentences must be a list (not a raw JSON string)."""
+        response = await client.get(f"/cards/{seed_card.id}")
+        assert response.status_code == 200
+        body = response.json()
+        assert isinstance(body["example_sentences"], list)
+        assert len(body["example_sentences"]) == 2
+
+    async def test_get_card_fields_are_snake_case(
+        self, client: AsyncClient, seed_card: Card
+    ) -> None:
+        """Response uses snake_case keys only — no camelCase."""
+        response = await client.get(f"/cards/{seed_card.id}")
+        assert response.status_code == 200
+        body = response.json()
+        # These should exist (snake_case)
+        assert "target_word" in body
+        assert "target_language" in body
+        assert "fsrs_state" in body
+        assert "last_review" in body
+        assert "created_at" in body
+        assert "updated_at" in body
+        # These must NOT exist (camelCase)
+        assert "targetWord" not in body
+        assert "targetLanguage" not in body
+        assert "fsrsState" not in body
+        assert "lastReview" not in body
+        assert "createdAt" not in body
+        assert "updatedAt" not in body
+
+
+# ── T3: PATCH /cards/{card_id} ────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+class TestPatchCard:
+    """Tests for PATCH /cards/{card_id} (AC: 2, 3, 7)."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_cards(self, test_engine) -> None:
+        """Clean card and settings tables before each test."""
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    async def test_patch_translation_updates_field(
+        self, client: AsyncClient, session: AsyncSession, seed_card: Card
+    ) -> None:
+        """PATCH translation → 200 + updated translation in response + DB updated."""
+        from sqlalchemy import select
+
+        from lingosips.db.models import Card
+
+        response = await client.patch(f"/cards/{seed_card.id}", json={"translation": "gloomy"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["translation"] == "gloomy"
+
+        # Verify DB updated
+        await session.refresh(seed_card)
+        result = await session.execute(select(Card).where(Card.id == seed_card.id))
+        db_card = result.scalar_one()
+        assert db_card.translation == "gloomy"
+
+    async def test_patch_personal_note_persists(
+        self, client: AsyncClient, session: AsyncSession, seed_card: Card
+    ) -> None:
+        """PATCH personal_note → 200 + note stored in DB."""
+        from sqlalchemy import select
+
+        from lingosips.db.models import Card
+
+        response = await client.patch(f"/cards/{seed_card.id}", json={"personal_note": "my note"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["personal_note"] == "my note"
+
+        result = await session.execute(select(Card).where(Card.id == seed_card.id))
+        db_card = result.scalar_one()
+        assert db_card.personal_note == "my note"
+
+    async def test_patch_example_sentences_updates_list(
+        self, client: AsyncClient, seed_card: Card
+    ) -> None:
+        """PATCH example_sentences → 200 + response has the updated list."""
+        response = await client.patch(
+            f"/cards/{seed_card.id}",
+            json={"example_sentences": ["New sentence."]},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert isinstance(body["example_sentences"], list)
+        assert body["example_sentences"] == ["New sentence."]
+
+    async def test_patch_forms_updates_object(self, client: AsyncClient, seed_card: Card) -> None:
+        """PATCH forms → 200 + response forms.gender updated."""
+        new_forms = {
+            "gender": "feminine",
+            "article": "la",
+            "plural": "melancólicas",
+            "conjugations": {},
+        }
+        response = await client.patch(f"/cards/{seed_card.id}", json={"forms": new_forms})
+        assert response.status_code == 200
+        body = response.json()
+        assert isinstance(body["forms"], dict)
+        assert body["forms"]["gender"] == "feminine"
+
+    async def test_patch_only_updates_provided_fields(
+        self, client: AsyncClient, session: AsyncSession, seed_card: Card
+    ) -> None:
+        """PATCH only translation → personal_note and example_sentences unchanged in DB."""
+        from sqlalchemy import select
+
+        from lingosips.db.models import Card
+
+        response = await client.patch(f"/cards/{seed_card.id}", json={"translation": "sad"})
+        assert response.status_code == 200
+
+        result = await session.execute(select(Card).where(Card.id == seed_card.id))
+        db_card = result.scalar_one()
+        assert db_card.translation == "sad"
+        # personal_note was None and stays None
+        assert db_card.personal_note is None
+        # example_sentences unchanged — still the original JSON
+        assert db_card.example_sentences is not None
+
+    async def test_patch_card_not_found_returns_404(self, client: AsyncClient) -> None:
+        """PATCH non-existent card → 404 RFC 7807."""
+        response = await client.patch("/cards/99999", json={"translation": "gloomy"})
+        assert response.status_code == 404
+        body = response.json()
+        assert body["type"] == "/errors/card-not-found"
+        assert body["status"] == 404
+
+    async def test_patch_empty_translation_returns_422(
+        self, client: AsyncClient, seed_card: Card
+    ) -> None:
+        """PATCH empty translation → 422 (min_length=1 validation)."""
+        response = await client.patch(f"/cards/{seed_card.id}", json={"translation": ""})
+        assert response.status_code == 422
+
+    async def test_patch_returns_updated_card_response(
+        self, client: AsyncClient, seed_card: Card
+    ) -> None:
+        """PATCH returns full CardResponse shape (not just the changed field)."""
+        response = await client.patch(f"/cards/{seed_card.id}", json={"translation": "gloomy"})
+        assert response.status_code == 200
+        body = response.json()
+        # Verify full CardResponse shape
+        assert "id" in body
+        assert "target_word" in body
+        assert "translation" in body
+        assert "forms" in body
+        assert "example_sentences" in body
+        assert "fsrs_state" in body
+        assert "due" in body
+
+
+# ── T4: DELETE /cards/{card_id} ───────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+class TestDeleteCard:
+    """Tests for DELETE /cards/{card_id} (AC: 5, 7)."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_cards(self, test_engine) -> None:
+        """Clean card, settings, and reviews tables before each test."""
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM reviews"))
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    async def test_delete_card_returns_204(self, client: AsyncClient, seed_card: Card) -> None:
+        """DELETE existing card → 204 No Content."""
+        response = await client.delete(f"/cards/{seed_card.id}")
+        assert response.status_code == 204
+        assert response.content == b""
+
+    async def test_delete_card_removes_from_db(
+        self, client: AsyncClient, session: AsyncSession, seed_card: Card
+    ) -> None:
+        """DELETE card → subsequent GET returns 404."""
+        await client.delete(f"/cards/{seed_card.id}")
+        get_response = await client.get(f"/cards/{seed_card.id}")
+        assert get_response.status_code == 404
+
+    async def test_delete_card_not_found_returns_404(self, client: AsyncClient) -> None:
+        """DELETE non-existent card → 404 RFC 7807."""
+        response = await client.delete("/cards/99999")
+        assert response.status_code == 404
+        body = response.json()
+        assert body["type"] == "/errors/card-not-found"
+        assert body["status"] == 404
+
+    async def test_delete_card_removes_from_practice_queue(
+        self, client: AsyncClient, session: AsyncSession
+    ) -> None:
+        """DELETE card → card no longer in GET /practice/queue (AC: 7)."""
+        import json
+        from datetime import UTC, datetime, timedelta
+
+        from lingosips.db.models import Card
+
+        # Create a card that is due now (immediately in practice queue)
+        past_due = datetime.now(UTC) - timedelta(minutes=1)
+        card = Card(
+            target_word="prueba",
+            translation="test",
+            forms=json.dumps({"gender": None, "article": None, "plural": None, "conjugations": {}}),
+            example_sentences=json.dumps(["Una prueba.", "Otra prueba."]),
+            target_language="es",
+            due=past_due,
+        )
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+
+        # Verify card is in practice queue
+        queue_resp = await client.get("/practice/queue")
+        assert queue_resp.status_code == 200
+        queue_ids = [c["id"] for c in queue_resp.json()]
+        assert card.id in queue_ids
+
+        # Delete the card
+        del_resp = await client.delete(f"/cards/{card.id}")
+        assert del_resp.status_code == 204
+
+        # Verify card is no longer in practice queue
+        queue_resp2 = await client.get("/practice/queue")
+        assert queue_resp2.status_code == 200
+        queue_ids2 = [c["id"] for c in queue_resp2.json()]
+        assert card.id not in queue_ids2

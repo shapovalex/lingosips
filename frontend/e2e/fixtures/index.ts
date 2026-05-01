@@ -3,7 +3,7 @@
  * Full page objects implemented as features are built (Story 1.9+).
  */
 
-import { type Page, expect } from "@playwright/test"
+import { type APIRequestContext, type Page, expect } from "@playwright/test"
 
 /** Navigate to the home page and wait for it to load. */
 export async function gotoHome(page: Page): Promise<void> {
@@ -40,4 +40,23 @@ export async function completeOnboarding(page: Page): Promise<void> {
       onboarding_completed: true,
     },
   })
+}
+
+/**
+ * Create a seed card via POST /cards/stream and extract the card_id from
+ * the SSE complete event.
+ *
+ * Returns the card_id of the created card.
+ */
+export async function createSeedCard(request: APIRequestContext): Promise<number> {
+  const response = await request.fetch("http://localhost:7842/cards/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    data: JSON.stringify({ target_word: "prueba" }),
+  })
+  const body = await response.text()
+  // Parse SSE events to find card_id from complete event
+  const match = body.match(/"card_id":\s*(\d+)/)
+  if (!match) throw new Error(`No card_id in SSE response. Body: ${body.slice(0, 200)}`)
+  return Number(match[1])
 }

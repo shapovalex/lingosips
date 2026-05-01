@@ -21,9 +21,7 @@ class TestGetPracticeQueue:
             await conn.execute(text("DELETE FROM cards"))
             await conn.execute(text("DELETE FROM settings"))
 
-    async def test_returns_empty_list_when_no_due_cards(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_returns_empty_list_when_no_due_cards(self, client: AsyncClient) -> None:
         """Empty DB → 200 with []."""
         response = await client.get("/practice/queue")
         assert response.status_code == 200
@@ -53,9 +51,7 @@ class TestGetPracticeQueue:
         assert data[0]["target_word"] == "word1"  # earlier due date first
         assert data[1]["target_word"] == "word2"
 
-    async def test_excludes_future_due_cards(
-        self, client: AsyncClient, session
-    ) -> None:
+    async def test_excludes_future_due_cards(self, client: AsyncClient, session) -> None:
         """Cards with future due date must NOT appear in queue."""
         from lingosips.db.models import Card, Settings
 
@@ -73,9 +69,7 @@ class TestGetPracticeQueue:
         assert response.status_code == 200
         assert response.json() == []
 
-    async def test_response_has_required_fields(
-        self, client: AsyncClient, session
-    ) -> None:
+    async def test_response_has_required_fields(self, client: AsyncClient, session) -> None:
         """Queue cards include all required fields including FSRS state."""
         from lingosips.db.models import Card, Settings
 
@@ -102,9 +96,7 @@ class TestGetPracticeQueue:
         ]:
             assert field in item, f"Missing field: {field}"
 
-    async def test_filters_by_active_target_language(
-        self, client: AsyncClient, session
-    ) -> None:
+    async def test_filters_by_active_target_language(self, client: AsyncClient, session) -> None:
         """Only cards with active_target_language appear in queue."""
         from lingosips.db.models import Card, Settings
 
@@ -124,9 +116,7 @@ class TestGetPracticeQueue:
         assert len(data) == 1
         assert data[0]["target_word"] == "bonjour"
 
-    async def test_returns_list_not_null_when_empty(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_returns_list_not_null_when_empty(self, client: AsyncClient) -> None:
         """Empty result must be [] — never null."""
         response = await client.get("/practice/queue")
         assert response.status_code == 200
@@ -134,9 +124,7 @@ class TestGetPracticeQueue:
         assert body is not None
         assert isinstance(body, list)
 
-    async def test_translation_none_serialized_as_null(
-        self, client: AsyncClient, session
-    ) -> None:
+    async def test_translation_none_serialized_as_null(self, client: AsyncClient, session) -> None:
         """Cards with translation=None serialize correctly as null in the queue response."""
         from lingosips.db.models import Card, Settings
 

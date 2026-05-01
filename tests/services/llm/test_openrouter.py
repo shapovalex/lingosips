@@ -16,9 +16,7 @@ class TestOpenRouterProvider:
         provider = OpenRouterProvider(api_key="sk-test-key", model="openai/gpt-4o-mini")
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "melancólico"}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": "melancólico"}}]}
         mock_post_fn = AsyncMock(return_value=mock_response)
         with patch("httpx.AsyncClient.post", new=mock_post_fn) as mock_post:
             result = await provider.complete(
@@ -75,9 +73,7 @@ class TestOpenRouterProvider:
 
         with patch("httpx.AsyncClient.stream", return_value=mock_cm):
             tokens = []
-            async for token in provider.stream_complete(
-                [{"role": "user", "content": "test"}]
-            ):
+            async for token in provider.stream_complete([{"role": "user", "content": "test"}]):
                 tokens.append(token)
 
         assert tokens == ["Hello", " world"]
@@ -95,11 +91,8 @@ class TestOpenRouterProvider:
 
         with patch("httpx.AsyncClient.stream", return_value=mock_cm):
             with pytest.raises(RuntimeError, match="OpenRouter stream error 500"):
-                async for _ in provider.stream_complete(
-                    [{"role": "user", "content": "test"}]
-                ):
+                async for _ in provider.stream_complete([{"role": "user", "content": "test"}]):
                     pass
-
 
     async def test_stream_complete_skips_non_data_lines(self):
         """Lines not starting with 'data: ' are silently skipped."""

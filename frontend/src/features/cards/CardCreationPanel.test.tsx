@@ -19,6 +19,14 @@ import { vi, describe, it, expect, beforeEach } from "vitest"
 import React from "react"
 import { CardCreationPanel } from "./CardCreationPanel"
 
+// ── Mock TanStack Router ─────────────────────────────────────────────────────
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
+    <a href={to}>{children}</a>
+  ),
+  useNavigate: () => vi.fn(),
+}))
+
 // ── Mock useCardStream ───────────────────────────────────────────────────────
 vi.mock("./useCardStream")
 import { useCardStream } from "./useCardStream"
@@ -237,6 +245,24 @@ describe("CardCreationPanel", () => {
 
     expect(screen.getByRole("button", { name: /save card/i })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /discard/i })).toBeInTheDocument()
+  })
+
+  it("renders 'View card →' link in populated state when card_id is set (T12)", async () => {
+    mockUseCardStream.mockReturnValue({
+      state: "populated",
+      fields: { translation: "test", card_id: 42 },
+      errorMessage: null,
+      startStream: mockStartStream,
+      saveCard: mockSaveCard,
+      discard: mockDiscard,
+      reset: mockReset,
+    })
+
+    renderPanel()
+
+    // useEffect fires after render — the link appears once completedCardId is set
+    const link = await screen.findByText("View card →")
+    expect(link).toBeInTheDocument()
   })
 
   it("calls saveCard when Save card button is clicked (AC4)", async () => {

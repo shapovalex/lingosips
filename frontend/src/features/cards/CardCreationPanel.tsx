@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef, useState } from "react"
+import { Link } from "@tanstack/react-router"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,11 +32,22 @@ const FIELD_ANIM =
 
 export function CardCreationPanel() {
   const [inputValue, setInputValue] = useState("")
+  const [completedCardId, setCompletedCardId] = useState<number | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const hasPlayedRef = useRef(false) // prevent audio from replaying on re-render
 
   const { state, fields, errorMessage, startStream, saveCard, discard, reset } = useCardStream()
+
+  // Track completedCardId from the SSE complete event
+  useEffect(() => {
+    if (state === "populated" && fields.card_id != null) {
+      setCompletedCardId(fields.card_id)
+    }
+    if (state === "idle") {
+      setCompletedCardId(null)
+    }
+  }, [state, fields.card_id])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && inputValue.trim() && state === "idle") {
@@ -196,10 +208,19 @@ export function CardCreationPanel() {
 
       {/* Save / Discard action row (AC4) — visible only in populated state */}
       {showActionRow && (
-        <div className="flex gap-2 justify-end">
+        <div className="flex gap-2 items-center justify-end">
           <Button variant="ghost" onClick={discard}>
             Discard
           </Button>
+          {completedCardId != null && (
+            <Link
+              to="/cards/$cardId"
+              params={{ cardId: String(completedCardId) }}
+              className="text-sm text-zinc-400 hover:text-zinc-200 underline"
+            >
+              View card →
+            </Link>
+          )}
           <Button onClick={saveCard}>Save card</Button>
         </div>
       )}
