@@ -1,4 +1,4 @@
-"""Write-mode answer evaluation for lingosips practice.
+"""Write-mode answer evaluation and speech evaluation for lingosips practice.
 
 Business logic only — no FastAPI imports.
 API layer (api/practice.py) delegates here.
@@ -13,6 +13,7 @@ import structlog
 
 from lingosips.db.models import Card
 from lingosips.services.llm.base import AbstractLLMProvider, LLMMessage
+from lingosips.services.speech.base import AbstractSpeechProvider, SyllableResult
 
 logger = structlog.get_logger(__name__)
 
@@ -207,3 +208,47 @@ async def evaluate_answer(
         explanation=explanation,
         suggested_rating=3 if is_correct else 1,
     )
+
+
+async def evaluate_speech(
+    audio: bytes,
+    target: str,
+    language: str,
+    speech_provider: AbstractSpeechProvider,
+) -> SyllableResult:
+    """Evaluate spoken pronunciation, wrapping provider errors into specific exceptions.
+
+    Does NOT import FastAPI — pure core. Callers (api layer) handle HTTP mapping.
+
+    Raises:
+        RuntimeError: provider timeout or evaluation failure (not generic 500 — API layer
+                      must map this to 422 with specific message)
+    """
+    try:
+        result = await asyncio.wait_for(
+            speech_provider.evaluate_pronunciation(audio, target, language),
+            timeout=10.0,  # outer safety guard; provider has its own timeout
+        )
+    except TimeoutError as exc:
+        logger.warning(
+            "speech.evaluation_timeout",
+            target=target,
+            language=language,
+            provider=speech_provider.provider_name,
+        )
+        raise RuntimeError(
+            f"Speech evaluation timed out — provider: {speech_provider.provider_name}"
+        ) from exc
+    except Exception as exc:
+        logger.warning(
+            "speech.evaluation_error",
+            target=target,
+            language=language,
+            provider=speech_provider.provider_name,
+            error=str(exc),
+        )
+        raise RuntimeError(
+            f"Speech evaluation unavailable — {speech_provider.provider_name}: {exc!s}"
+        ) from exc
+
+    return result

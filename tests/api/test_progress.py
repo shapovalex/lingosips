@@ -59,9 +59,13 @@ class TestGetDashboard:
 
         session.add(
             Review(
-                card_id=card.id, rating=3,
-                stability_after=1.0, difficulty_after=1.0,
-                fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                card_id=card.id,
+                rating=3,
+                stability_after=1.0,
+                difficulty_after=1.0,
+                fsrs_state_after="Review",
+                reps_after=1,
+                lapses_after=0,
             )
         )
         await session.commit()
@@ -83,10 +87,14 @@ class TestGetDashboard:
 
         session.add(
             Review(
-                card_id=card.id, rating=3,
+                card_id=card.id,
+                rating=3,
                 reviewed_at=datetime.now(UTC) - timedelta(days=2),
-                stability_after=1.0, difficulty_after=1.0,
-                fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                stability_after=1.0,
+                difficulty_after=1.0,
+                fsrs_state_after="Review",
+                reps_after=1,
+                lapses_after=0,
             )
         )
         await session.commit()
@@ -108,9 +116,13 @@ class TestGetDashboard:
 
         session.add(
             Review(
-                card_id=card.id, rating=3,
-                stability_after=1.0, difficulty_after=1.0,
-                fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                card_id=card.id,
+                rating=3,
+                stability_after=1.0,
+                difficulty_after=1.0,
+                fsrs_state_after="Review",
+                reps_after=1,
+                lapses_after=0,
             )
         )
         await session.commit()
@@ -165,18 +177,28 @@ class TestGetSessionStats:
         now = datetime.now(UTC)
         session.add(
             Review(
-                card_id=card.id, rating=3, session_id=ps.id,
+                card_id=card.id,
+                rating=3,
+                session_id=ps.id,
                 reviewed_at=now - timedelta(seconds=60),
-                stability_after=1.0, difficulty_after=1.0,
-                fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                stability_after=1.0,
+                difficulty_after=1.0,
+                fsrs_state_after="Review",
+                reps_after=1,
+                lapses_after=0,
             )
         )
         session.add(
             Review(
-                card_id=card.id, rating=1, session_id=ps.id,
+                card_id=card.id,
+                rating=1,
+                session_id=ps.id,
                 reviewed_at=now,
-                stability_after=0.5, difficulty_after=5.0,
-                fsrs_state_after="Learning", reps_after=2, lapses_after=1,
+                stability_after=0.5,
+                difficulty_after=5.0,
+                fsrs_state_after="Learning",
+                reps_after=2,
+                lapses_after=1,
             )
         )
         ps.ended_at = now
@@ -223,17 +245,13 @@ class TestGetSessionStats:
             assert "card_id" in entry
             assert "rating" in entry
 
-    async def test_returns_correct_recall_rate(
-        self, client: AsyncClient, seeded_session
-    ) -> None:
+    async def test_returns_correct_recall_rate(self, client: AsyncClient, seeded_session) -> None:
         """recall_rate = 1/2 for session with 1 Good and 1 Again."""
         response = await client.get(f"/progress/sessions/{seeded_session.id}")
         assert response.status_code == 200
         assert abs(response.json()["recall_rate"] - 0.5) < 0.001
 
-    async def test_returns_correct_time_spent(
-        self, client: AsyncClient, seeded_session
-    ) -> None:
+    async def test_returns_correct_time_spent(self, client: AsyncClient, seeded_session) -> None:
         """time_spent_seconds is delta between first and last review."""
         response = await client.get(f"/progress/sessions/{seeded_session.id}")
         assert response.status_code == 200

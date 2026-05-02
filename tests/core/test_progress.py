@@ -43,9 +43,7 @@ class TestGetDashboardStats:
         stats = await get_dashboard_stats(session)
         assert stats.total_cards == 3
 
-    async def test_learned_cards_counts_distinct_cards_rated_good_or_easy(
-        self, session
-    ) -> None:
+    async def test_learned_cards_counts_distinct_cards_rated_good_or_easy(self, session) -> None:
         """learned_cards counts distinct cards with rating >= 3 (Good or Easy)."""
         from lingosips.db.models import Card, Review
 
@@ -61,16 +59,24 @@ class TestGetDashboardStats:
         # card2: rated Easy (4) — learned
         session.add(
             Review(
-                card_id=card1.id, rating=3,
-                stability_after=1.0, difficulty_after=1.0,
-                fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                card_id=card1.id,
+                rating=3,
+                stability_after=1.0,
+                difficulty_after=1.0,
+                fsrs_state_after="Review",
+                reps_after=1,
+                lapses_after=0,
             )
         )
         session.add(
             Review(
-                card_id=card2.id, rating=4,
-                stability_after=1.0, difficulty_after=1.0,
-                fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                card_id=card2.id,
+                rating=4,
+                stability_after=1.0,
+                difficulty_after=1.0,
+                fsrs_state_after="Review",
+                reps_after=1,
+                lapses_after=0,
             )
         )
         await session.commit()
@@ -78,9 +84,7 @@ class TestGetDashboardStats:
         stats = await get_dashboard_stats(session)
         assert stats.learned_cards == 2
 
-    async def test_learned_cards_does_not_double_count_multiple_good_ratings(
-        self, session
-    ) -> None:
+    async def test_learned_cards_does_not_double_count_multiple_good_ratings(self, session) -> None:
         """Multiple Good/Easy ratings for the same card count as 1 learned card."""
         from lingosips.db.models import Card, Review
 
@@ -93,9 +97,13 @@ class TestGetDashboardStats:
         for _ in range(2):
             session.add(
                 Review(
-                    card_id=card.id, rating=3,
-                    stability_after=1.0, difficulty_after=1.0,
-                    fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                    card_id=card.id,
+                    rating=3,
+                    stability_after=1.0,
+                    difficulty_after=1.0,
+                    fsrs_state_after="Review",
+                    reps_after=1,
+                    lapses_after=0,
                 )
             )
         await session.commit()
@@ -114,9 +122,13 @@ class TestGetDashboardStats:
 
         session.add(
             Review(
-                card_id=card.id, rating=1,
-                stability_after=0.1, difficulty_after=5.0,
-                fsrs_state_after="Learning", reps_after=1, lapses_after=1,
+                card_id=card.id,
+                rating=1,
+                stability_after=0.1,
+                difficulty_after=5.0,
+                fsrs_state_after="Learning",
+                reps_after=1,
+                lapses_after=1,
             )
         )
         await session.commit()
@@ -137,9 +149,14 @@ class TestGetDashboardStats:
         # Recent review — within 30 days
         session.add(
             Review(
-                card_id=card.id, rating=3, reviewed_at=now - timedelta(days=5),
-                stability_after=1.0, difficulty_after=1.0,
-                fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                card_id=card.id,
+                rating=3,
+                reviewed_at=now - timedelta(days=5),
+                stability_after=1.0,
+                difficulty_after=1.0,
+                fsrs_state_after="Review",
+                reps_after=1,
+                lapses_after=0,
             )
         )
         await session.commit()
@@ -161,9 +178,14 @@ class TestGetDashboardStats:
         # Old review — 31 days ago
         session.add(
             Review(
-                card_id=card.id, rating=3, reviewed_at=now - timedelta(days=31),
-                stability_after=1.0, difficulty_after=1.0,
-                fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                card_id=card.id,
+                rating=3,
+                reviewed_at=now - timedelta(days=31),
+                stability_after=1.0,
+                difficulty_after=1.0,
+                fsrs_state_after="Review",
+                reps_after=1,
+                lapses_after=0,
             )
         )
         await session.commit()
@@ -184,9 +206,13 @@ class TestGetDashboardStats:
         for rating in [3, 3, 1]:
             session.add(
                 Review(
-                    card_id=card.id, rating=rating,
-                    stability_after=1.0, difficulty_after=1.0,
-                    fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                    card_id=card.id,
+                    rating=rating,
+                    stability_after=1.0,
+                    difficulty_after=1.0,
+                    fsrs_state_after="Review",
+                    reps_after=1,
+                    lapses_after=0,
                 )
             )
         await session.commit()
@@ -251,9 +277,14 @@ class TestGetSessionStats:
         for _ in range(3):
             session.add(
                 Review(
-                    card_id=card.id, rating=3, session_id=practice_session.id,
-                    stability_after=1.0, difficulty_after=1.0,
-                    fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                    card_id=card.id,
+                    rating=3,
+                    session_id=practice_session.id,
+                    stability_after=1.0,
+                    difficulty_after=1.0,
+                    fsrs_state_after="Review",
+                    reps_after=1,
+                    lapses_after=0,
                 )
             )
         await session.commit()
@@ -273,9 +304,14 @@ class TestGetSessionStats:
 
         session.add(
             Review(
-                card_id=card.id, rating=4, session_id=practice_session.id,
-                stability_after=1.0, difficulty_after=1.0,
-                fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                card_id=card.id,
+                rating=4,
+                session_id=practice_session.id,
+                stability_after=1.0,
+                difficulty_after=1.0,
+                fsrs_state_after="Review",
+                reps_after=1,
+                lapses_after=0,
             )
         )
         await session.commit()
@@ -298,9 +334,14 @@ class TestGetSessionStats:
         for rating in [3, 1, 4]:  # 2/3 correct
             session.add(
                 Review(
-                    card_id=card.id, rating=rating, session_id=practice_session.id,
-                    stability_after=1.0, difficulty_after=1.0,
-                    fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                    card_id=card.id,
+                    rating=rating,
+                    session_id=practice_session.id,
+                    stability_after=1.0,
+                    difficulty_after=1.0,
+                    fsrs_state_after="Review",
+                    reps_after=1,
+                    lapses_after=0,
                 )
             )
         await session.commit()
@@ -323,18 +364,28 @@ class TestGetSessionStats:
         now = datetime.now(UTC)
         session.add(
             Review(
-                card_id=card.id, rating=3, session_id=practice_session.id,
+                card_id=card.id,
+                rating=3,
+                session_id=practice_session.id,
                 reviewed_at=now - timedelta(seconds=120),
-                stability_after=1.0, difficulty_after=1.0,
-                fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                stability_after=1.0,
+                difficulty_after=1.0,
+                fsrs_state_after="Review",
+                reps_after=1,
+                lapses_after=0,
             )
         )
         session.add(
             Review(
-                card_id=card.id, rating=4, session_id=practice_session.id,
+                card_id=card.id,
+                rating=4,
+                session_id=practice_session.id,
                 reviewed_at=now,
-                stability_after=1.0, difficulty_after=1.0,
-                fsrs_state_after="Review", reps_after=2, lapses_after=0,
+                stability_after=1.0,
+                difficulty_after=1.0,
+                fsrs_state_after="Review",
+                reps_after=2,
+                lapses_after=0,
             )
         )
         await session.commit()
@@ -354,9 +405,14 @@ class TestGetSessionStats:
 
         session.add(
             Review(
-                card_id=card.id, rating=3, session_id=practice_session.id,
-                stability_after=1.0, difficulty_after=1.0,
-                fsrs_state_after="Review", reps_after=1, lapses_after=0,
+                card_id=card.id,
+                rating=3,
+                session_id=practice_session.id,
+                stability_after=1.0,
+                difficulty_after=1.0,
+                fsrs_state_after="Review",
+                reps_after=1,
+                lapses_after=0,
             )
         )
         await session.commit()
@@ -365,9 +421,7 @@ class TestGetSessionStats:
         assert stats is not None
         assert stats.time_spent_seconds == 0
 
-    async def test_started_at_from_practice_session_record(
-        self, session, practice_session
-    ) -> None:
+    async def test_started_at_from_practice_session_record(self, session, practice_session) -> None:
         """started_at in stats comes from PracticeSession.started_at."""
         stats = await get_session_stats(session, practice_session.id)
         assert stats is not None

@@ -93,11 +93,14 @@ test.describe("Practice Self-Assess Mode", () => {
       const response = await request.post("http://localhost:7842/practice/session/start")
       expect(response.status()).toBe(200)
       const data = await response.json()
-      expect(Array.isArray(data)).toBe(true)
+      // Session start returns { session_id, cards } (updated in Story 3.5)
+      expect(data).toHaveProperty("session_id")
+      expect(typeof data.session_id).toBe("number")
+      expect(Array.isArray(data.cards)).toBe(true)
       // Should have at least 2 cards (the ones we seeded)
-      expect(data.length).toBeGreaterThanOrEqual(2)
+      expect(data.cards.length).toBeGreaterThanOrEqual(2)
       // Verify QueueCard shape
-      for (const card of data) {
+      for (const card of data.cards) {
         expect(card).toHaveProperty("id")
         expect(card).toHaveProperty("target_word")
         expect(card).toHaveProperty("fsrs_state")

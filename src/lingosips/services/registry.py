@@ -24,9 +24,11 @@ from lingosips.services.llm.base import AbstractLLMProvider
 from lingosips.services.llm.openrouter import OpenRouterProvider
 from lingosips.services.llm.qwen_local import QwenLocalProvider
 from lingosips.services.models.manager import ModelManager
+from lingosips.services.models.whisper_manager import WhisperModelManager
 from lingosips.services.speech.azure import AzureSpeechProvider
 from lingosips.services.speech.base import AbstractSpeechProvider
 from lingosips.services.speech.pyttsx3_local import Pyttsx3Provider
+from lingosips.services.speech.whisper_local import WhisperLocalProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -48,6 +50,7 @@ class ServiceStatusInfo:
 DEFAULT_OPENROUTER_MODEL = "openai/gpt-4o-mini"  # fallback when key set but model not configured
 
 _model_manager = ModelManager()  # module-level singleton
+_whisper_model_manager = WhisperModelManager()  # mirrors _model_manager for Whisper
 
 
 def get_service_status_info() -> ServiceStatusInfo:
@@ -173,6 +176,38 @@ def get_speech_provider() -> AbstractSpeechProvider:
         _pyttsx3_provider = Pyttsx3Provider()
 
     return _pyttsx3_provider
+
+
+def get_speech_evaluator() -> AbstractSpeechProvider:
+    """Return the appropriate speech evaluation provider based on configured credentials.
+
+    AzureSpeechProvider preferred when BOTH key and region are present.
+    Falls back to WhisperLocalProvider when either is missing.
+    Raises HTTP 503 if Whisper model is not yet downloaded — client must subscribe
+    to GET /models/download/progress.
+
+    NOTE: This covers EVALUATION only (evaluate_pronunciation).
+    For TTS (synthesize), use get_speech_provider() instead.
+
+    Used exclusively via FastAPI Depends(get_speech_evaluator) in api/ routers.
+    """
+    api_key = get_credential(AZURE_SPEECH_KEY)
+    region = get_credential(AZURE_SPEECH_REGION)
+    if api_key and region:
+        return AzureSpeechProvider(api_key=api_key, region=region)
+
+    # Local fallback — check model is ready
+    if not _whisper_model_manager.is_ready():
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "type": "/errors/speech-model-downloading",
+                "title": "Speech model is downloading",
+                "detail": "Subscribe to /models/download/progress for progress",
+                "status": 503,
+            },
+        )
+    return WhisperLocalProvider()
 
 
 def get_image_service() -> "ImageService":  # type: ignore[return]  # noqa: F821

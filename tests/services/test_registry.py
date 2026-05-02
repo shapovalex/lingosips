@@ -217,6 +217,95 @@ class TestGetSpeechProvider:
 
 
 @pytest.mark.anyio
+class TestGetSpeechEvaluator:
+    """Tests for get_speech_evaluator() — AC: 4, 6, 8."""
+
+    def test_returns_azure_when_both_credentials_set(self):
+        """Azure creds configured → AzureSpeechProvider returned."""
+        from lingosips.services.speech.azure import AzureSpeechProvider
+
+        def mock_cred(k):
+            return {"azure_speech_key": "key-123", "azure_speech_region": "eastus"}.get(k)
+
+        import lingosips.services.registry as reg
+
+        with patch("lingosips.services.registry.get_credential", side_effect=mock_cred):
+            with patch.object(reg._whisper_model_manager, "is_ready", return_value=False):
+                provider = reg.get_speech_evaluator()
+
+        assert isinstance(provider, AzureSpeechProvider)
+
+    def test_returns_whisper_when_no_credentials(self):
+        """No Azure creds + Whisper model ready → WhisperLocalProvider returned."""
+        import lingosips.services.registry as reg
+        from lingosips.services.speech.whisper_local import WhisperLocalProvider
+
+        with patch("lingosips.services.registry.get_credential", return_value=None):
+            with patch.object(reg._whisper_model_manager, "is_ready", return_value=True):
+                provider = reg.get_speech_evaluator()
+
+        assert isinstance(provider, WhisperLocalProvider)
+
+    def test_raises_503_when_whisper_model_not_ready(self):
+        """No Azure creds + Whisper not ready → HTTP 503 with RFC 7807 body."""
+        import lingosips.services.registry as reg
+
+        with patch("lingosips.services.registry.get_credential", return_value=None):
+            with patch.object(reg._whisper_model_manager, "is_ready", return_value=False):
+                with pytest.raises(HTTPException) as exc_info:
+                    reg.get_speech_evaluator()
+
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail["type"] == "/errors/speech-model-downloading"
+
+    def test_503_detail_follows_rfc7807(self):
+        """503 error detail must follow RFC 7807 shape."""
+        import lingosips.services.registry as reg
+
+        with patch("lingosips.services.registry.get_credential", return_value=None):
+            with patch.object(reg._whisper_model_manager, "is_ready", return_value=False):
+                with pytest.raises(HTTPException) as exc_info:
+                    reg.get_speech_evaluator()
+
+        detail = exc_info.value.detail
+        assert "type" in detail
+        assert "title" in detail
+        assert "detail" in detail
+        assert "status" in detail
+        assert detail["status"] == 503
+
+    def test_returns_azure_even_when_whisper_not_ready(self):
+        """Azure creds present → Azure returned regardless of Whisper readiness."""
+        from lingosips.services.speech.azure import AzureSpeechProvider
+
+        def mock_cred(k):
+            return {"azure_speech_key": "key", "azure_speech_region": "eastus"}.get(k)
+
+        import lingosips.services.registry as reg
+
+        with patch("lingosips.services.registry.get_credential", side_effect=mock_cred):
+            with patch.object(reg._whisper_model_manager, "is_ready", return_value=False):
+                provider = reg.get_speech_evaluator()
+
+        assert isinstance(provider, AzureSpeechProvider)
+
+    def test_only_key_missing_returns_whisper_fallback(self):
+        """Only region set (no key) → falls back to Whisper when model ready."""
+        from lingosips.services.speech.whisper_local import WhisperLocalProvider
+
+        def mock_cred(k):
+            return "eastus" if k == "azure_speech_region" else None
+
+        import lingosips.services.registry as reg
+
+        with patch("lingosips.services.registry.get_credential", side_effect=mock_cred):
+            with patch.object(reg._whisper_model_manager, "is_ready", return_value=True):
+                provider = reg.get_speech_evaluator()
+
+        assert isinstance(provider, WhisperLocalProvider)
+
+
+@pytest.mark.anyio
 class TestInvalidateProviderCache:
     """Tests for invalidate_provider_cache() — lines 100-101."""
 

@@ -1,13 +1,13 @@
 """FastAPI router for practice queue — GET /practice/queue, POST /practice/session/start,
-GET /practice/next-due, POST /practice/cards/{card_id}/rate, and
-POST /practice/cards/{card_id}/evaluate.
+GET /practice/next-due, POST /practice/cards/{card_id}/rate,
+POST /practice/cards/{card_id}/evaluate, and POST /practice/cards/{card_id}/speak.
 
 Router only — no business logic. Business logic delegated to core/fsrs.py and core/practice.py.
 """
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,8 @@ from lingosips.core import settings as core_settings
 from lingosips.db.models import Card, PracticeSession
 from lingosips.db.session import get_session
 from lingosips.services.llm.base import AbstractLLMProvider
-from lingosips.services.registry import get_llm_provider
+from lingosips.services.registry import get_llm_provider, get_speech_evaluator
+from lingosips.services.speech.base import AbstractSpeechProvider
 
 router = APIRouter()
 
@@ -247,4 +248,88 @@ async def evaluate_card_answer(
         correct_value=result.correct_value,
         explanation=result.explanation,
         suggested_rating=result.suggested_rating,
+    )
+
+
+# ── Speak endpoint ────────────────────────────────────────────────────────────
+
+
+class SyllableDetailResponse(BaseModel):
+    syllable: str
+    correct: bool
+    score: float  # 0.0–1.0
+
+
+class SpeechEvaluationResponse(BaseModel):
+    overall_correct: bool
+    syllables: list[SyllableDetailResponse]
+    correction_message: str | None
+    provider_used: str  # "azure_speech" | "local_whisper" — for SyllableFeedback fallback-notice
+
+
+@router.post("/cards/{card_id}/speak", response_model=SpeechEvaluationResponse)
+async def evaluate_speak(
+    card_id: int,
+    request: Request,
+    speech_evaluator: AbstractSpeechProvider = Depends(get_speech_evaluator),
+    session: AsyncSession = Depends(get_session),
+) -> SpeechEvaluationResponse:
+    """Evaluate spoken pronunciation of a card's target word.
+
+    Accepts raw WAV bytes as the request body (Content-Type: audio/wav).
+    Returns SpeechEvaluationResponse with per-syllable correctness data.
+
+    Raises:
+        400: empty audio body
+        404: card_id does not exist (RFC 7807)
+        503: Whisper model not yet downloaded (RFC 7807)
+        422: speech evaluation error — provider unreachable or audio too short
+    """
+    card = await session.get(Card, card_id)
+    if card is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "type": "/errors/card-not-found",
+                "title": "Card not found",
+                "detail": f"Card {card_id} does not exist",
+            },
+        )
+
+    audio = await request.body()
+    if not audio:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "type": "/errors/empty-audio",
+                "title": "Empty audio",
+                "detail": "Request body must contain WAV audio bytes",
+            },
+        )
+
+    try:
+        result = await core_practice.evaluate_speech(
+            audio=audio,
+            target=card.target_word,
+            language=card.target_language,
+            speech_provider=speech_evaluator,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "type": "/errors/speech-evaluation-failed",
+                "title": "Speech evaluation unavailable",
+                "detail": str(exc),
+            },
+        )
+
+    return SpeechEvaluationResponse(
+        overall_correct=result.overall_correct,
+        syllables=[
+            SyllableDetailResponse(syllable=d.syllable, correct=d.correct, score=d.score)
+            for d in result.syllables
+        ],
+        correction_message=result.correction_message,
+        provider_used=speech_evaluator.provider_name.lower().replace(" ", "_"),
     )

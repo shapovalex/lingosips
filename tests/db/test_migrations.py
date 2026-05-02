@@ -189,8 +189,7 @@ class TestPracticeSessionsTable:
         with migrated_engine.connect() as conn:
             result = conn.execute(
                 text(
-                    "SELECT name FROM sqlite_master WHERE type='table' "
-                    "AND name='practice_sessions'"
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='practice_sessions'"
                 )
             )
             assert result.fetchone() is not None, "practice_sessions table not found"

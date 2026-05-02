@@ -61,3 +61,25 @@
 - **Queue count in "in-session" status bar can go stale** — `QueueWidget` in-session mode shows `{queue.length} remaining` but the `["practice","queue"]` query is not refetched during a session. The displayed count does not decrement as cards are rated. Epic 3.2 (self-assess session management) owns session-level query invalidation. File: `frontend/src/features/practice/QueueWidget.tsx`
 
 - **`fsrs_card.last_review` timezone coercion not verified** — `db_card.last_review` is set from `fsrs_card.last_review` which the fsrs library assigns internally. No assertion that the returned datetime is timezone-aware. Works with fsrs v6.3.1 in current tests; verify if upgrading the library. File: `src/lingosips/core/fsrs.py`
+
+## Deferred from: code review of 4-1-speech-evaluation-api-whisper-azure-speech (2026-05-02)
+
+- **`WhisperModel` instantiated per request** — Expensive (model weights loaded fresh each call) but intentional for MVP simplicity. The spec explicitly acknowledges the per-call approach and instructs to "add caching if tests show SLA violation". File: `src/lingosips/services/speech/whisper_local.py:84`
+
+- **`asyncio.wait_for` cannot cancel executor thread** — When `wait_for` times out, the coroutine is cancelled but the background thread running `_evaluate_sync` (model load + inference) keeps running. Leaks threads under load. Known Python limitation; acceptable for single-user MVP. File: `src/lingosips/services/speech/whisper_local.py:55`
+
+- **`_build_syllable_result` substring match causes false-positive `overall_correct`** — `target_clean in trans_clean` means short words (e.g., `"a"`, `"el"`) match inside any transcription. Intentional MVP heuristic; the spec notes the algorithm is "not linguistically precise". File: `src/lingosips/services/speech/whisper_local.py:137`
+
+- **Naive CV syllabification — language-agnostic and phonetically imprecise** — `_syllabify()` and `_syllabify_from_azure()` split on Latin vowels only. Correct per spec: "adequate for per-syllable UX; not linguistically precise". Files: `whisper_local.py:101`, `azure.py:205`
+
+- **No request body size cap on audio upload** — `await request.body()` reads entire body with no size guard. A crafted request can exhaust server memory. Out of scope for Story 4.1; address in a security hardening story. File: `src/lingosips/api/practice.py:299`
+
+- **`is_ready()` does not validate model file integrity** — Returns `True` for any non-empty directory; a partially-downloaded or corrupted model passes. MVP trade-off; `WhisperModel` will raise an error at inference time. File: `src/lingosips/services/models/whisper_manager.py:37`
+
+- **`_downloading` flag stuck `True` if OS kills the download thread** — `finally` block handles Python exceptions but not OOM-kills or segfaults. No TTL or watchdog mechanism. Restart required to recover. MVP acceptable. File: `src/lingosips/services/models/whisper_manager.py:119`
+
+- **`asyncio.to_thread()` wraps a coroutine in `api/services.py`** — Pre-existing bug from a prior story: `AzureSpeechProvider.synthesize()` is `async def` but passed to `asyncio.to_thread()` (for sync callables), so the Azure Speech connection-test path is broken. Out of scope for Story 4.1. File: `src/lingosips/api/services.py:208`
+
+- **"Speech model downloading…" UI string absent** — AC6 requires the frontend to show this string. Frontend integration belongs to Story 4.3 (speak-mode-practice-session), which is backlog. File: frontend/src/features/practice/ (not yet created)
+
+- **2-second SLA not enforced at timeout level** — All timeouts are 10s by design. The 2s target is a goal, not a hard enforcement boundary. Spec comment: `# hard limit; 2s SLA is the goal`. If real-world performance is insufficient, cache the `WhisperModel` instance or move to lazy-init (see whisper_local.py §PerformanceSLA). File: `src/lingosips/services/speech/whisper_local.py:21`

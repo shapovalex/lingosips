@@ -12,7 +12,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 
 from lingosips.api.app import app
-from lingosips.services.registry import get_llm_provider
+from lingosips.services.registry import get_llm_provider, get_speech_evaluator
 
 
 @pytest.mark.anyio
@@ -1024,9 +1024,7 @@ class TestSentenceCardQueue:
                     "register_context": None,
                 }
             ),
-            example_sentences=json.dumps(
-                ["Tenía un aire melancólico.", "Era un día melancólico."]
-            ),
+            example_sentences=json.dumps(["Tenía un aire melancólico.", "Era un día melancólico."]),
         )
         session.add(card)
         await session.commit()
@@ -1073,3 +1071,313 @@ class TestSentenceCardQueue:
         data = response.json()
         assert len(data) > 0
         assert "card_type" in data[0]
+
+
+# ── TestEvaluateSpeak ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+class TestEvaluateSpeak:
+    """Tests for POST /practice/cards/{card_id}/speak (AC: 5, 7, 9)."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_tables(self, test_engine) -> None:
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    @pytest.fixture
+    async def seed_card(self, session):
+        """Create a card for speak evaluation tests."""
+        from lingosips.db.models import Card, Settings
+
+        settings = Settings(active_target_language="es")
+        session.add(settings)
+        card = Card(target_word="agua", translation="water", target_language="es")
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+        return card
+
+    @pytest.fixture
+    def mock_speech_evaluator(self):
+        """Mock get_speech_evaluator with a provider that returns a fixed SyllableResult."""
+        from lingosips.services.speech.base import SyllableDetail, SyllableResult
+        from lingosips.services.speech.whisper_local import WhisperLocalProvider
+
+        class MockEvaluator(WhisperLocalProvider):
+            @property
+            def provider_name(self) -> str:
+                return "Local Whisper"
+
+            async def evaluate_pronunciation(self, audio, target, language):
+                return SyllableResult(
+                    overall_correct=True,
+                    syllables=[
+                        SyllableDetail(syllable="a", correct=True, score=1.0),
+                        SyllableDetail(syllable="gua", correct=True, score=1.0),
+                    ],
+                    correction_message=None,
+                )
+
+        app.dependency_overrides[get_speech_evaluator] = lambda: MockEvaluator()
+        yield
+        app.dependency_overrides.pop(get_speech_evaluator, None)
+
+    @pytest.fixture
+    def mock_speech_evaluator_azure(self):
+        """Mock get_speech_evaluator returning Azure-like provider."""
+        from lingosips.services.speech.azure import AzureSpeechProvider
+        from lingosips.services.speech.base import SyllableDetail, SyllableResult
+
+        class MockAzureEvaluator(AzureSpeechProvider):
+            def __init__(self):
+                super().__init__(api_key="mock-key", region="eastus")
+
+            async def evaluate_pronunciation(self, audio, target, language):
+                return SyllableResult(
+                    overall_correct=True,
+                    syllables=[SyllableDetail(syllable="test", correct=True, score=0.9)],
+                    correction_message=None,
+                )
+
+        app.dependency_overrides[get_speech_evaluator] = lambda: MockAzureEvaluator()
+        yield
+        app.dependency_overrides.pop(get_speech_evaluator, None)
+
+    @pytest.fixture
+    def mock_speech_timeout(self):
+        """Mock provider that raises RuntimeError (simulating timeout)."""
+        from lingosips.services.speech.whisper_local import WhisperLocalProvider
+
+        class TimeoutEvaluator(WhisperLocalProvider):
+            async def evaluate_pronunciation(self, audio, target, language):
+                raise RuntimeError("Speech evaluation timed out — provider: Local Whisper")
+
+        app.dependency_overrides[get_speech_evaluator] = lambda: TimeoutEvaluator()
+        yield
+        app.dependency_overrides.pop(get_speech_evaluator, None)
+
+    @pytest.fixture
+    def mock_whisper_not_ready(self):
+        """Mock get_speech_evaluator to raise 503 (model not downloaded)."""
+        from fastapi import HTTPException
+
+        def raise_503():
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "type": "/errors/speech-model-downloading",
+                    "title": "Speech model is downloading",
+                    "detail": "Subscribe to /models/download/progress for progress",
+                    "status": 503,
+                },
+            )
+
+        app.dependency_overrides[get_speech_evaluator] = raise_503
+        yield
+        app.dependency_overrides.pop(get_speech_evaluator, None)
+
+    async def test_returns_syllable_result_shape(
+        self, client: AsyncClient, seed_card, mock_speech_evaluator
+    ) -> None:
+        """POST with valid WAV bytes → 200 with SpeechEvaluationResponse."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/speak",
+            content=b"RIFF_fake_wav_audio",
+            headers={"Content-Type": "audio/wav"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "overall_correct" in data
+        assert "syllables" in data
+        assert "correction_message" in data
+        assert "provider_used" in data
+        assert isinstance(data["syllables"], list)
+
+    async def test_whisper_provider_used_when_no_azure(
+        self, client: AsyncClient, seed_card, mock_speech_evaluator
+    ) -> None:
+        """When Whisper mock is used → provider_used contains 'whisper'."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/speak",
+            content=b"RIFF_fake_wav_audio",
+            headers={"Content-Type": "audio/wav"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "whisper" in data["provider_used"].lower()
+
+    async def test_azure_provider_used_when_configured(
+        self, client: AsyncClient, seed_card, mock_speech_evaluator_azure
+    ) -> None:
+        """When Azure mock is used → provider_used contains 'azure'."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/speak",
+            content=b"RIFF_fake_wav_audio",
+            headers={"Content-Type": "audio/wav"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "azure" in data["provider_used"].lower()
+
+    async def test_empty_audio_returns_400(
+        self, client: AsyncClient, seed_card, mock_speech_evaluator
+    ) -> None:
+        """POST with empty body → 400."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/speak",
+            content=b"",
+            headers={"Content-Type": "audio/wav"},
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data["type"] == "/errors/empty-audio"
+
+    async def test_card_not_found_returns_404(
+        self, client: AsyncClient, mock_speech_evaluator
+    ) -> None:
+        """Non-existent card_id → 404 with RFC 7807 body."""
+        response = await client.post(
+            "/practice/cards/99999/speak",
+            content=b"RIFF_fake_wav_audio",
+            headers={"Content-Type": "audio/wav"},
+        )
+        assert response.status_code == 404
+        data = response.json()
+        assert data["type"] == "/errors/card-not-found"
+        assert data["title"] == "Card not found"
+
+    async def test_speech_timeout_returns_422(
+        self, client: AsyncClient, seed_card, mock_speech_timeout
+    ) -> None:
+        """RuntimeError from provider → 422 with RFC 7807 body."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/speak",
+            content=b"RIFF_fake_wav_audio",
+            headers={"Content-Type": "audio/wav"},
+        )
+        assert response.status_code == 422
+        data = response.json()
+        assert data["type"] == "/errors/speech-evaluation-failed"
+
+    async def test_503_when_whisper_model_not_ready(
+        self, client: AsyncClient, seed_card, mock_whisper_not_ready
+    ) -> None:
+        """503 from get_speech_evaluator → propagated to client."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/speak",
+            content=b"RIFF_fake_wav_audio",
+            headers={"Content-Type": "audio/wav"},
+        )
+        assert response.status_code == 503
+
+    async def test_syllables_count_matches_mock(
+        self, client: AsyncClient, seed_card, mock_speech_evaluator
+    ) -> None:
+        """Mock returns 2 syllables → response has 2 syllables."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/speak",
+            content=b"RIFF_fake_wav_audio",
+            headers={"Content-Type": "audio/wav"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["syllables"]) == 2
+
+    async def test_syllable_detail_shape(
+        self, client: AsyncClient, seed_card, mock_speech_evaluator
+    ) -> None:
+        """Each syllable detail has syllable, correct, score fields."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/speak",
+            content=b"RIFF_fake_wav_audio",
+            headers={"Content-Type": "audio/wav"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        for detail in data["syllables"]:
+            assert "syllable" in detail
+            assert "correct" in detail
+            assert "score" in detail
+
+    async def test_overall_correct_true_when_mock_returns_correct(
+        self, client: AsyncClient, seed_card, mock_speech_evaluator
+    ) -> None:
+        """Mock returns overall_correct=True → response reflects that."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/speak",
+            content=b"RIFF_fake_wav_audio",
+            headers={"Content-Type": "audio/wav"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["overall_correct"] is True
+        assert data["correction_message"] is None
+
+    @pytest.fixture
+    def mock_speech_evaluator_incorrect(self):
+        """Mock get_speech_evaluator returning overall_correct=False with correction_message."""
+        from lingosips.services.speech.base import SyllableDetail, SyllableResult
+        from lingosips.services.speech.whisper_local import WhisperLocalProvider
+
+        class IncorrectEvaluator(WhisperLocalProvider):
+            @property
+            def provider_name(self) -> str:
+                return "Local Whisper"
+
+            async def evaluate_pronunciation(self, audio, target, language):
+                return SyllableResult(
+                    overall_correct=False,
+                    syllables=[
+                        SyllableDetail(syllable="a", correct=False, score=0.2),
+                        SyllableDetail(syllable="gua", correct=True, score=0.8),
+                    ],
+                    correction_message='Heard: "awa" — expected: "agua"',
+                )
+
+        app.dependency_overrides[get_speech_evaluator] = lambda: IncorrectEvaluator()
+        yield
+        app.dependency_overrides.pop(get_speech_evaluator, None)
+
+    async def test_incorrect_pronunciation_returns_correction_message(
+        self, client: AsyncClient, seed_card, mock_speech_evaluator_incorrect
+    ) -> None:
+        """Mock returns overall_correct=False → correction_message non-null (AC9 failure path)."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/speak",
+            content=b"RIFF_fake_wav_audio",
+            headers={"Content-Type": "audio/wav"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["overall_correct"] is False
+        assert data["correction_message"] is not None
+        assert len(data["correction_message"]) > 0
+
+    async def test_incorrect_syllables_have_false_correct_flag(
+        self, client: AsyncClient, seed_card, mock_speech_evaluator_incorrect
+    ) -> None:
+        """Mock returns mixed syllable correctness → response syllables reflect that."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/speak",
+            content=b"RIFF_fake_wav_audio",
+            headers={"Content-Type": "audio/wav"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["syllables"]) == 2
+        # First syllable incorrect, second correct
+        assert data["syllables"][0]["correct"] is False
+        assert data["syllables"][1]["correct"] is True

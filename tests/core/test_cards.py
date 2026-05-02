@@ -656,7 +656,6 @@ class TestCreateCardStream:
         card = result.scalar_one()
         assert card.audio_url is None
 
-
     async def test_sentence_card_type_persisted(
         self, mock_llm_sentence, mock_speech, session
     ) -> None:
