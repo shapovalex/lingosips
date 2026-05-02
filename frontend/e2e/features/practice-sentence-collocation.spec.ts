@@ -30,7 +30,7 @@ async function createDueSentenceCard(
   },
 ): Promise<number> {
   // Create card via SSE (LLM will set card_type based on content)
-  const response = await request.fetch("http://localhost:7842/cards/stream", {
+  const response = await request.fetch("http://127.0.0.1:7842/cards/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     data: JSON.stringify({ target_word: options.targetWord }),
@@ -41,7 +41,7 @@ async function createDueSentenceCard(
   const id = Number(match[1])
 
   // Patch: set known translation and past due date
-  await request.patch(`http://localhost:7842/cards/${id}`, {
+  await request.patch(`http://127.0.0.1:7842/cards/${id}`, {
     data: {
       translation: options.translation,
       due: new Date(Date.now() - 60_000).toISOString(),
@@ -59,7 +59,7 @@ async function createDueWordCard(
   targetWord: string,
   translation: string,
 ): Promise<number> {
-  const response = await request.fetch("http://localhost:7842/cards/stream", {
+  const response = await request.fetch("http://127.0.0.1:7842/cards/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     data: JSON.stringify({ target_word: targetWord }),
@@ -69,7 +69,7 @@ async function createDueWordCard(
   if (!match) throw new Error(`No card_id in SSE: ${body.slice(0, 300)}`)
   const id = Number(match[1])
 
-  await request.patch(`http://localhost:7842/cards/${id}`, {
+  await request.patch(`http://127.0.0.1:7842/cards/${id}`, {
     data: {
       translation,
       due: new Date(Date.now() - 60_000).toISOString(),
@@ -96,7 +96,7 @@ test("practice queue includes card_type, forms, example_sentences on session sta
   })
 
   // Check the API response includes the required fields
-  const response = await request.post("http://localhost:7842/practice/session/start")
+  const response = await request.post("http://127.0.0.1:7842/practice/session/start")
   expect(response.ok()).toBeTruthy()
   const data = await response.json()
   // Story 3.5: session/start now returns { session_id, cards } instead of a flat array
@@ -177,7 +177,7 @@ test("write mode — sentence exact match returns is_correct=true from evaluate 
   })
 
   // Evaluate exact match directly via API
-  const evalResponse = await request.post(`http://localhost:7842/practice/cards/${id}/evaluate`, {
+  const evalResponse = await request.post(`http://127.0.0.1:7842/practice/cards/${id}/evaluate`, {
     data: { answer: "don't play dumb" },
     headers: { "Content-Type": "application/json" },
   })
@@ -196,7 +196,7 @@ test("write mode — sentence wrong answer returns is_correct=false with empty h
   })
 
   // Evaluate clearly wrong answer
-  const evalResponse = await request.post(`http://localhost:7842/practice/cards/${id}/evaluate`, {
+  const evalResponse = await request.post(`http://127.0.0.1:7842/practice/cards/${id}/evaluate`, {
     data: { answer: "completely wrong answer unrelated to the meaning" },
     headers: { "Content-Type": "application/json" },
   })
@@ -217,7 +217,7 @@ test("write mode — sentence paraphrase returns is_correct=true from LLM (AC: 4
   })
 
   // Evaluate a clear paraphrase
-  const evalResponse = await request.post(`http://localhost:7842/practice/cards/${id}/evaluate`, {
+  const evalResponse = await request.post(`http://127.0.0.1:7842/practice/cards/${id}/evaluate`, {
     data: { answer: "stop pretending you don't know" },
     headers: { "Content-Type": "application/json" },
   })

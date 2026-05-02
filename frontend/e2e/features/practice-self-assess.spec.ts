@@ -29,7 +29,7 @@ async function createDueCard(
 ): Promise<number> {
   if (cardId) {
     // Update existing card's due date to past
-    await request.patch(`http://localhost:7842/cards/${cardId}`, {
+    await request.patch(`http://127.0.0.1:7842/cards/${cardId}`, {
       data: { due: new Date(Date.now() - 60_000).toISOString() },
       headers: { "Content-Type": "application/json" },
     })
@@ -37,7 +37,7 @@ async function createDueCard(
   }
 
   // Create via SSE stream
-  const response = await request.fetch("http://localhost:7842/cards/stream", {
+  const response = await request.fetch("http://127.0.0.1:7842/cards/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     data: JSON.stringify({ target_word: targetWord }),
@@ -48,7 +48,7 @@ async function createDueCard(
   const id = Number(match[1])
 
   // Set due to past so it appears in queue
-  await request.patch(`http://localhost:7842/cards/${id}`, {
+  await request.patch(`http://127.0.0.1:7842/cards/${id}`, {
     data: { due: new Date(Date.now() - 60_000).toISOString() },
     headers: { "Content-Type": "application/json" },
   })
@@ -74,7 +74,7 @@ async function deleteCards(
   ids: number[],
 ): Promise<void> {
   for (const id of ids) {
-    await request.delete(`http://localhost:7842/cards/${id}`)
+    await request.delete(`http://127.0.0.1:7842/cards/${id}`)
   }
 }
 
@@ -90,7 +90,7 @@ test.describe("Practice Self-Assess Mode", () => {
   test("POST /practice/session/start returns due cards (AC1)", async ({ request }) => {
     const ids = await seedDueCards(request, 2)
     try {
-      const response = await request.post("http://localhost:7842/practice/session/start")
+      const response = await request.post("http://127.0.0.1:7842/practice/session/start")
       expect(response.status()).toBe(200)
       const data = await response.json()
       // Session start returns { session_id, cards } (updated in Story 3.5)
@@ -113,7 +113,7 @@ test.describe("Practice Self-Assess Mode", () => {
   // ── AC2: GET /practice/next-due works ─────────────────────────────────────
 
   test("GET /practice/next-due returns earliest due date (AC2)", async ({ request }) => {
-    const response = await request.get("http://localhost:7842/practice/next-due")
+    const response = await request.get("http://127.0.0.1:7842/practice/next-due")
     expect(response.status()).toBe(200)
     const data = await response.json()
     expect(data).toHaveProperty("next_due")
@@ -125,17 +125,17 @@ test.describe("Practice Self-Assess Mode", () => {
 
   test("GET /practice/next-due returns null when no cards exist", async ({ request }) => {
     // Set active language to a test language unlikely to have cards
-    await request.put("http://localhost:7842/settings", {
+    await request.put("http://127.0.0.1:7842/settings", {
       data: { native_language: "en", active_target_language: "ja", onboarding_completed: true },
       headers: { "Content-Type": "application/json" },
     })
-    const response = await request.get("http://localhost:7842/practice/next-due")
+    const response = await request.get("http://127.0.0.1:7842/practice/next-due")
     expect(response.status()).toBe(200)
     const data = await response.json()
     expect(data.next_due).toBeNull()
 
     // Reset back to es
-    await request.put("http://localhost:7842/settings", {
+    await request.put("http://127.0.0.1:7842/settings", {
       data: { native_language: "en", active_target_language: "es", onboarding_completed: true },
       headers: { "Content-Type": "application/json" },
     })
@@ -226,7 +226,7 @@ test.describe("Practice Self-Assess Mode", () => {
     // cards from past failures from bloating the session beyond 3.
     // Note: "zz" was previously used but is not in SUPPORTED_LANGUAGES (→ 422),
     //       so the settings change silently failed, leaving 149 "es" cards in scope.
-    await request.put("http://localhost:7842/settings", {
+    await request.put("http://127.0.0.1:7842/settings", {
       data: {
         native_language: "en",
         active_target_language: "uk",
@@ -266,7 +266,7 @@ test.describe("Practice Self-Assess Mode", () => {
     } finally {
       await deleteCards(request, ids)
       // Reset language to "es" and restore default cards_per_session (20)
-      await request.put("http://localhost:7842/settings", {
+      await request.put("http://127.0.0.1:7842/settings", {
         data: {
           native_language: "en",
           active_target_language: "es",
@@ -282,7 +282,7 @@ test.describe("Practice Self-Assess Mode", () => {
 
   test("session with empty queue shows no-cards message (AC8)", async ({ page, request }) => {
     // Use a language with no due cards
-    await request.put("http://localhost:7842/settings", {
+    await request.put("http://127.0.0.1:7842/settings", {
       data: { native_language: "en", active_target_language: "de", onboarding_completed: true },
       headers: { "Content-Type": "application/json" },
     })
@@ -295,7 +295,7 @@ test.describe("Practice Self-Assess Mode", () => {
       await expect(page.getByRole("button", { name: /return home/i })).toBeVisible()
     } finally {
       // Reset to es
-      await request.put("http://localhost:7842/settings", {
+      await request.put("http://127.0.0.1:7842/settings", {
         data: { native_language: "en", active_target_language: "es", onboarding_completed: true },
         headers: { "Content-Type": "application/json" },
       })

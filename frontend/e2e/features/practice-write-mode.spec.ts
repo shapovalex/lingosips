@@ -29,7 +29,7 @@ async function createDueCardWithTranslation(
   translation: string,
 ): Promise<number> {
   // Create via SSE stream
-  const response = await request.fetch("http://localhost:7842/cards/stream", {
+  const response = await request.fetch("http://127.0.0.1:7842/cards/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     data: JSON.stringify({ target_word: targetWord }),
@@ -40,7 +40,7 @@ async function createDueCardWithTranslation(
   const id = Number(match[1])
 
   // Patch with known translation + past due date
-  await request.patch(`http://localhost:7842/cards/${id}`, {
+  await request.patch(`http://127.0.0.1:7842/cards/${id}`, {
     data: {
       translation,
       due: new Date(Date.now() - 60_000).toISOString(),
@@ -96,7 +96,7 @@ test("correct answer → write-result success state → Good pre-selected → En
   await expect(page.getByRole("textbox")).toBeVisible({ timeout: 5000 })
 
   // Cleanup
-  await request.delete(`http://localhost:7842/cards/${card1Id}`)
+  await request.delete(`http://127.0.0.1:7842/cards/${card1Id}`)
 })
 
 test("wrong answer → char highlighting → explanation or 'unavailable' → FSRS rating row → Again", async ({ page, request }) => {

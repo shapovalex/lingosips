@@ -88,3 +88,8 @@
 
 - **Chip key stability on syllable reorder** — `key={\`${s.syllable}-${i}\`}` does not survive list reordering between retries; all chips unmount/remount on reorder, losing animation continuity. Low impact until retry flow (Story 4.3) is implemented. File: `frontend/src/features/practice/SyllableFeedback.tsx`
 - **Tab navigation test brittleness** — "Tab navigates from Try again to Move on" test relies on no other focusable elements existing between the two buttons in DOM order. Will silently break if any future child is inserted between them. File: `frontend/src/features/practice/SyllableFeedback.test.tsx`
+
+## Deferred from: code review of 5-1-cefr-profile-computation-engine (2026-05-02)
+
+- **Concurrent cache miss double-computation** — Two asyncio coroutines can both miss the `_profile_cache` and independently call `_compute_profile`, resulting in redundant DB queries and the second overwriting the first. Harmless correctness-wise; negligible at single-user scale. If multi-instance deployment is ever considered, replace with `asyncio.Lock`. File: `src/lingosips/core/cefr.py:73`
+- **`compute_grammar_coverage` unbounded memory** — Fetches all `forms` JSON blobs for the target language into Python memory before parsing. For a user with thousands of cards this allocates proportionally large memory. SQLite JSON functions (e.g. `json_each`) would shift aggregation to DB, but adds complexity not warranted at single-user scale. File: `src/lingosips/core/cefr.py:101`

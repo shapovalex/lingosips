@@ -118,7 +118,7 @@ test.describe("Card Management — Card Detail", () => {
     await expect(page).toHaveURL("/", { timeout: 5000 })
 
     // Card should no longer be accessible
-    const apiResponse = await page.request.get(`http://localhost:7842/cards/${cardId}`)
+    const apiResponse = await page.request.get(`http://127.0.0.1:7842/cards/${cardId}`)
     expect(apiResponse.status()).toBe(404)
   })
 
@@ -143,7 +143,7 @@ test.describe("Card Management — Card Detail", () => {
     await expect(page.getByRole("heading", { name: "prueba" })).toBeVisible()
 
     // Verify card still exists in API
-    const apiResponse = await page.request.get(`http://localhost:7842/cards/${cardId}`)
+    const apiResponse = await page.request.get(`http://127.0.0.1:7842/cards/${cardId}`)
     expect(apiResponse.status()).toBe(200)
   })
 
@@ -190,7 +190,7 @@ test.describe("Card Image — Story 2.6", () => {
 
   test("skip image sets image_skipped state and shows Undo (AC5)", async ({ page }) => {
     // Configure image endpoint for this test via API
-    await page.request.post("http://localhost:7842/services/credentials", {
+    await page.request.post("http://127.0.0.1:7842/services/credentials", {
       data: { image_endpoint_url: "http://localhost:9999/nonexistent" },
     })
 
@@ -209,18 +209,18 @@ test.describe("Card Image — Story 2.6", () => {
     await expect(page.getByRole("button", { name: /undo/i })).toBeVisible()
 
     // API should have image_skipped=true
-    const apiResponse = await page.request.get(`http://localhost:7842/cards/${cardId}`)
+    const apiResponse = await page.request.get(`http://127.0.0.1:7842/cards/${cardId}`)
     const cardData = await apiResponse.json()
     expect(cardData.image_skipped).toBe(true)
     expect(cardData.image_url).toBeNull()
 
     // Clean up: remove image credential
-    await page.request.delete("http://localhost:7842/services/credentials/image")
+    await page.request.delete("http://127.0.0.1:7842/services/credentials/image")
   })
 
   test("undo skip returns to Add image button (AC5)", async ({ page }) => {
     // Configure image endpoint for this test
-    await page.request.post("http://localhost:7842/services/credentials", {
+    await page.request.post("http://127.0.0.1:7842/services/credentials", {
       data: { image_endpoint_url: "http://localhost:9999/nonexistent" },
     })
 
@@ -242,11 +242,11 @@ test.describe("Card Image — Story 2.6", () => {
     await expect(page.getByRole("button", { name: /add image/i })).toBeVisible({ timeout: 3000 })
 
     // API should have image_skipped=false
-    const apiResponse = await page.request.get(`http://localhost:7842/cards/${cardId}`)
+    const apiResponse = await page.request.get(`http://127.0.0.1:7842/cards/${cardId}`)
     const cardData = await apiResponse.json()
     expect(cardData.image_skipped).toBe(false)
 
     // Clean up
-    await page.request.delete("http://localhost:7842/services/credentials/image")
+    await page.request.delete("http://127.0.0.1:7842/services/credentials/image")
   })
 })

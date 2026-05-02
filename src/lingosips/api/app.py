@@ -53,10 +53,20 @@ def _scrub_detail(detail: str | dict | None) -> str | dict:
     return ""
 
 
+def _run_migrations() -> None:
+    """Run Alembic migrations to head before the server accepts requests."""
+    from alembic import command
+    from alembic.config import Config
+
+    alembic_cfg = Config(str(Path(__file__).parent.parent.parent.parent / "alembic.ini"))
+    command.upgrade(alembic_cfg, "head")
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
     """App lifespan handler — startup logic before yield, shutdown after."""
     if os.environ.get("LINGOSIPS_ENV") != "test":
+        _run_migrations()
         _schedule_browser_open()
     yield
     # Shutdown logic goes here (if needed in future stories)
@@ -65,6 +75,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     from lingosips.api.cards import router as cards_router
+    from lingosips.api.cefr import router as cefr_router
     from lingosips.api.decks import router as decks_router
     from lingosips.api.imports import router as imports_router
     from lingosips.api.models import router as models_router
@@ -198,6 +209,7 @@ def create_app() -> FastAPI:
     application.include_router(cards_router, prefix="/cards", tags=["cards"])
     application.include_router(practice_router, prefix="/practice", tags=["practice"])
     application.include_router(progress_router, prefix="/progress", tags=["progress"])
+    application.include_router(cefr_router, prefix="/cefr", tags=["cefr"])
     application.include_router(services_router, prefix="/services", tags=["services"])
     application.include_router(decks_router, prefix="/decks", tags=["decks"])
     application.include_router(imports_router)

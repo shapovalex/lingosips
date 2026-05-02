@@ -29,7 +29,7 @@ test.describe("Deck Management", () => {
   test("browse decks screen — empty state (AC1)", async ({ page }) => {
     // Use French language which has no decks in this test run
     // (other tests create Spanish decks only)
-    await page.request.put("http://localhost:7842/settings", {
+    await page.request.put("http://127.0.0.1:7842/settings", {
       data: {
         native_language: "en",
         active_target_language: "fr",
@@ -110,7 +110,7 @@ test.describe("Deck Management", () => {
 
     // Create a card and assign it to this deck
     const cardId = await createSeedCard(request)
-    await request.patch(`http://localhost:7842/cards/${cardId}`, {
+    await request.patch(`http://127.0.0.1:7842/cards/${cardId}`, {
       data: { deck_id: deckId },
       headers: { "Content-Type": "application/json" },
     })
@@ -134,7 +134,7 @@ test.describe("Deck Management", () => {
     await expect(page.getByText(deckName)).not.toBeVisible({ timeout: 5000 })
 
     // Card should still exist in the collection (deck_id nulled, not deleted)
-    const cardResponse = await request.get(`http://localhost:7842/cards/${cardId}`)
+    const cardResponse = await request.get(`http://127.0.0.1:7842/cards/${cardId}`)
     expect(cardResponse.status()).toBe(200)
     const cardData = await cardResponse.json()
     expect(cardData.deck_id).toBeNull()
@@ -148,7 +148,7 @@ test.describe("Deck Management", () => {
 
     // Create a card and assign to this deck
     const cardId = await createSeedCard(request)
-    await request.patch(`http://localhost:7842/cards/${cardId}`, {
+    await request.patch(`http://127.0.0.1:7842/cards/${cardId}`, {
       data: { deck_id: deckId },
       headers: { "Content-Type": "application/json" },
     })
@@ -223,7 +223,7 @@ test.describe("Deck Management", () => {
     await expect(cardInput).toBeEnabled({ timeout: 10000 })
 
     // Verify via API: deck now has 1 card
-    const decksResponse = await request.get("http://localhost:7842/decks?target_language=es")
+    const decksResponse = await request.get("http://127.0.0.1:7842/decks?target_language=es")
     expect(decksResponse.ok()).toBeTruthy()
     const decks = await decksResponse.json()
     const ourDeck = (decks as Array<{ id: number; card_count: number }>).find(
@@ -262,7 +262,7 @@ test.describe("Deck Management", () => {
 
     // Card should be deleted from the API (404 expected)
     if (cardId) {
-      const apiResponse = await page.request.get(`http://localhost:7842/cards/${cardId}`)
+      const apiResponse = await page.request.get(`http://127.0.0.1:7842/cards/${cardId}`)
       expect(apiResponse.status()).toBe(404)
     }
   })
@@ -307,7 +307,7 @@ test.describe("Deck Management", () => {
     const deckId = await createSeedDeck(request, deckName)
 
     // Get the .lingosips bytes via the API directly
-    const exportResponse = await request.get(`http://localhost:7842/decks/${deckId}/export`)
+    const exportResponse = await request.get(`http://127.0.0.1:7842/decks/${deckId}/export`)
     expect(exportResponse.status()).toBe(200)
     const exportBytes = await exportResponse.body()
 

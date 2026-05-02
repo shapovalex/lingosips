@@ -143,11 +143,19 @@ export function PracticeCard({
   // Derive effective card state: transition write-active → write-result during render
   // when the evaluation result arrives. This avoids a synchronous setState in a useEffect
   // and is the React-idiomatic way to handle prop-driven state transitions.
+  // Analogous for speak: speak-recording → speak-result when speech evaluation arrives,
+  // but only when NOT actively re-recording (isRecording guard enables retry flow).
   const cardState: PracticeCardState =
     evaluationResult &&
     evaluationResult !== "pending" &&
     cardStateBase === "write-active"
       ? "write-result"
+      : syllableFeedbackState &&
+        syllableFeedbackState !== "awaiting" &&
+        syllableFeedbackState !== "evaluating" &&
+        !isRecording &&
+        cardStateBase === "speak-recording"
+      ? "speak-result"
       : cardStateBase
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)

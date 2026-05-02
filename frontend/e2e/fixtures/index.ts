@@ -33,7 +33,7 @@ export async function assertServerHealthy(page: Page): Promise<void> {
  * the /test/reset endpoint). Call in beforeEach for tests that require DB isolation.
  */
 export async function resetTestDb(page: Page): Promise<void> {
-  const response = await page.request.delete("http://localhost:7842/test/reset")
+  const response = await page.request.delete("http://127.0.0.1:7842/test/reset")
   if (!response.ok()) {
     throw new Error(`resetTestDb failed (${response.status()}): ${await response.text()}`)
   }
@@ -47,7 +47,7 @@ export async function resetTestDb(page: Page): Promise<void> {
  * shell (sidebar, bottom nav, etc.) to be visible.
  */
 export async function completeOnboarding(page: Page): Promise<void> {
-  await page.request.put("http://localhost:7842/settings", {
+  await page.request.put("http://127.0.0.1:7842/settings", {
     data: {
       native_language: "en",
       active_target_language: "es",
@@ -63,7 +63,7 @@ export async function completeOnboarding(page: Page): Promise<void> {
  * Returns the card_id of the created card.
  */
 export async function createSeedCard(request: APIRequestContext): Promise<number> {
-  const response = await request.fetch("http://localhost:7842/cards/stream", {
+  const response = await request.fetch("http://127.0.0.1:7842/cards/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     data: JSON.stringify({ target_word: "prueba" }),
@@ -86,7 +86,7 @@ export async function createSeedDeck(
   name: string,
   lang = "es",
 ): Promise<number> {
-  const response = await request.post("http://localhost:7842/decks", {
+  const response = await request.post("http://127.0.0.1:7842/decks", {
     data: { name, target_language: lang },
     headers: { "Content-Type": "application/json", Accept: "application/json" },
   })

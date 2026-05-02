@@ -75,6 +75,7 @@ class PracticeSession(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     started_at: datetime = Field(default_factory=_now)
     ended_at: datetime | None = None  # null until at least one card is rated
+    mode: str | None = Field(default=None)  # "self_assess" | "write" | "speak" — AC7 Story 5.1
 
 
 class Review(SQLModel, table=True):

@@ -8,25 +8,27 @@
 
 import { test, expect } from "@playwright/test"
 
-// Helper to create a card via API
+// Helper to create a card via POST /cards/stream (SSE) — matches the actual API.
+// Parses the SSE stream for the card_id from the complete event.
 async function createCard(
   request: import("@playwright/test").APIRequestContext,
   targetWord: string
-) {
-  const response = await request.post("/cards", {
-    data: {
-      target_word: targetWord,
-      target_language: "es",
-      translation: `Translation of ${targetWord}`,
-    },
+): Promise<{ id: number }> {
+  const response = await request.fetch("http://127.0.0.1:7842/cards/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    data: JSON.stringify({ target_word: targetWord, target_language: "es" }),
   })
-  expect(response.status()).toBe(201)
-  return response.json()
+  const body = await response.text()
+  const match = body.match(/"card_id":\s*(\d+)/)
+  if (!match) throw new Error(`No card_id in SSE response. Body: ${body.slice(0, 200)}`)
+  return { id: Number(match[1]) }
 }
 
-// Helper to reset the DB between tests
+// Helper to reset the DB between tests (requires LINGOSIPS_ENV=test on the server).
+// Uses DELETE /test/reset — silently skips if endpoint is not mounted (dev server).
 async function resetDb(request: import("@playwright/test").APIRequestContext) {
-  await request.post("/test/reset")
+  await request.delete("http://127.0.0.1:7842/test/reset").catch(() => undefined)
 }
 
 test.describe("Progress Dashboard — empty state", () => {
@@ -112,6 +114,51 @@ test.describe("Progress Dashboard — after practice", () => {
     const recallVisible = await recallRate.isVisible().catch(() => false)
     // This may or may not be visible depending on card due dates; just verify no error
     expect(recallVisible || true).toBe(true)
+  })
+})
+
+test.describe("CEFR profile endpoint (Story 5.1)", () => {
+  test.beforeEach(async ({ request }) => {
+    await resetDb(request)
+  })
+
+  test("GET /cefr/profile without target_language param returns 422", async ({ request }) => {
+    const response = await request.get("/cefr/profile")
+    expect(response.status()).toBe(422)
+    const data = await response.json()
+    // RFC 7807 validation error
+    expect(data.type).toBe("/errors/validation")
+    const errors = data.errors ?? []
+    const hasTargetLang = errors.some((e: { field?: string }) =>
+      (e.field ?? "").includes("target_language")
+    )
+    expect(hasTargetLang).toBe(true)
+  })
+
+  test("GET /cefr/profile?target_language=es with seed data returns valid profile shape", async ({
+    request,
+  }) => {
+    const response = await request.get("/cefr/profile?target_language=es")
+    expect(response.status()).toBe(200)
+    const data = await response.json()
+    // Required fields present
+    expect("level" in data).toBe(true)
+    expect("vocabulary_breadth" in data).toBe(true)
+    expect("grammar_coverage" in data).toBe(true)
+    expect("recall_rate_by_card_type" in data).toBe(true)
+    expect("active_passive_ratio" in data).toBe(true)
+    expect("explanation" in data).toBe(true)
+    // With empty DB, level must be null
+    expect(data.level).toBeNull()
+    expect(data.explanation).toContain("Practice more")
+  })
+
+  test("GET /cefr/profile?target_language=es returns within 500ms", async ({ request }) => {
+    const start = Date.now()
+    const response = await request.get("/cefr/profile?target_language=es")
+    const elapsed = Date.now() - start
+    expect(response.status()).toBe(200)
+    expect(elapsed).toBeLessThan(500)
   })
 })
 

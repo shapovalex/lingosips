@@ -111,7 +111,10 @@ export function usePracticeSession(_mode?: PracticeMode): UsePracticeSessionRetu
   // ── Fetch session cards on mount ─────────────────────────────────────────
 
   const startMutation = useMutation<SessionStartApiResponse, Error>({
-    mutationFn: () => post<SessionStartApiResponse>("/practice/session/start", undefined),
+    mutationFn: () => post<SessionStartApiResponse>(
+      `/practice/session/start?mode=${_mode ?? "self_assess"}`,
+      undefined
+    ),
     onSuccess: (data) => {
       setSessionId(data.session_id)
       setSessionCards(data.cards)

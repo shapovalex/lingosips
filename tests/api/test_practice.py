@@ -1381,3 +1381,47 @@ class TestEvaluateSpeak:
         # First syllable incorrect, second correct
         assert data["syllables"][0]["correct"] is False
         assert data["syllables"][1]["correct"] is True
+
+
+@pytest.mark.anyio
+class TestSessionMode:
+    """Tests for mode param on POST /practice/session/start (AC: 7, Story 5.1)."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_tables(self, test_engine) -> None:
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM reviews"))
+            await conn.execute(text("DELETE FROM practice_sessions"))
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    async def test_start_session_with_mode_stored(
+        self, client: AsyncClient, session
+    ) -> None:
+        """POST /practice/session/start?mode=write → practice_session.mode == 'write'."""
+        from lingosips.db.models import PracticeSession
+
+        response = await client.post("/practice/session/start?mode=write")
+        assert response.status_code == 200
+        data = response.json()
+        session_id = data["session_id"]
+
+        # Verify the mode was persisted in the DB
+        ps = await session.get(PracticeSession, session_id)
+        assert ps is not None
+        assert ps.mode == "write"
+
+    async def test_start_session_without_mode_defaults_to_null(
+        self, client: AsyncClient, session
+    ) -> None:
+        """POST /practice/session/start (no mode) → practice_session.mode is None."""
+        from lingosips.db.models import PracticeSession
+
+        response = await client.post("/practice/session/start")
+        assert response.status_code == 200
+        data = response.json()
+        session_id = data["session_id"]
+
+        ps = await session.get(PracticeSession, session_id)
+        assert ps is not None
+        assert ps.mode is None

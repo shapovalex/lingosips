@@ -227,7 +227,8 @@ describe("usePracticeSession", () => {
     renderHook(() => usePracticeSession(), { wrapper })
 
     await waitFor(() => {
-      expect(mockPost).toHaveBeenCalledWith("/practice/session/start", undefined)
+      // mode=self_assess is always appended (added in Story 5.1 for CEFR session tracking)
+      expect(mockPost).toHaveBeenCalledWith("/practice/session/start?mode=self_assess", undefined)
     })
   })
 

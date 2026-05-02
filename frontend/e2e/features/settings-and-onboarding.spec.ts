@@ -21,7 +21,7 @@ async function resetOnboarding(page: Page) {
    * contamination when a previous test changed the target language (e.g. "fr").
    * Uses the real API endpoint — keeps test isolation without DB truncation.
    */
-  await page.request.put("http://localhost:7842/settings", {
+  await page.request.put("http://127.0.0.1:7842/settings", {
     data: {
       onboarding_completed: false,
       native_language: "en",
@@ -34,7 +34,7 @@ async function completeOnboardingViaAPI(page: Page) {
   /**
    * Complete onboarding via API so tests that need app shell can skip the wizard.
    */
-  await page.request.put("http://localhost:7842/settings", {
+  await page.request.put("http://127.0.0.1:7842/settings", {
     data: {
       native_language: "en",
       active_target_language: "es",
@@ -158,7 +158,7 @@ test.describe("Settings page — Story 2.3", () => {
 
   test("system defaults save persists via API", async ({ page }) => {
     // Get initial auto_generate_audio state
-    const initialResp = await page.request.get("http://localhost:7842/settings")
+    const initialResp = await page.request.get("http://127.0.0.1:7842/settings")
     const initial = await initialResp.json()
     const newAudioValue = !initial.auto_generate_audio
     // Toggle auto_generate_audio
@@ -175,13 +175,13 @@ test.describe("Settings page — Story 2.3", () => {
     ])
     expect(putResponse.ok()).toBe(true)
     // Verify persisted
-    const resp = await page.request.get("http://localhost:7842/settings")
+    const resp = await page.request.get("http://127.0.0.1:7842/settings")
     const body = await resp.json()
     expect(body.auto_generate_audio).toBe(newAudioValue)
   })
 
   test("language section saves and settings endpoint responds", async ({ page }) => {
-    const resp = await page.request.get("http://localhost:7842/settings")
+    const resp = await page.request.get("http://127.0.0.1:7842/settings")
     expect(resp.status()).toBe(200)
     const body = await resp.json()
     expect(body).toHaveProperty("native_language")

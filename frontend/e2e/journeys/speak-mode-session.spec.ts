@@ -91,7 +91,7 @@ async function goToSpeakMode(page: import("@playwright/test").Page) {
 /** Ensure at least one card is due for practice */
 async function _ensureCardDue(page: import("@playwright/test").Page) {
   // Use createSeedCard via the API request context
-  await page.request.post("http://localhost:7842/cards/stream", {
+  await page.request.post("http://127.0.0.1:7842/cards/stream", {
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     data: JSON.stringify({ target_word: "hola" }),
   })
@@ -134,8 +134,11 @@ test.describe("Speak Mode Session Journey", () => {
   // ── AC2: First-use tooltip ────────────────────────────────────────────────
 
   test("first-use tooltip appears on first speak session (AC2)", async ({ page }) => {
-    // Clear the tooltip flag so it's a fresh start
-    await page.evaluate(() => localStorage.removeItem("lingosips-speak-tooltip-shown"))
+    // Use addInitScript so localStorage is cleared before the page navigates —
+    // page.evaluate() fails with SecurityError when the page is still at about:blank.
+    await page.addInitScript(() => {
+      localStorage.removeItem("lingosips-speak-tooltip-shown")
+    })
     await goToSpeakMode(page)
 
     // Tooltip should be visible
@@ -143,8 +146,10 @@ test.describe("Speak Mode Session Journey", () => {
   })
 
   test("first-use tooltip does NOT appear on subsequent sessions (AC2)", async ({ page }) => {
-    // Set the flag as if user has seen tooltip before
-    await page.evaluate(() => localStorage.setItem("lingosips-speak-tooltip-shown", "1"))
+    // Use addInitScript so localStorage is set before the page navigates.
+    await page.addInitScript(() => {
+      localStorage.setItem("lingosips-speak-tooltip-shown", "1")
+    })
     await goToSpeakMode(page)
 
     // Tooltip should NOT be visible
@@ -168,7 +173,7 @@ test.describe("Speak Mode Session Journey", () => {
 
     // Create 2 cards so we can skip and see next
     await createSeedCard(page.request)
-    await page.request.post("http://localhost:7842/cards/stream", {
+    await page.request.post("http://127.0.0.1:7842/cards/stream", {
       headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
       data: JSON.stringify({ target_word: "adios" }),
     })
@@ -233,9 +238,10 @@ test.describe("Speak Mode Session Journey", () => {
     await expect(micBtn).toBeVisible()
     await micBtn.click()
 
-    // Click again to stop and submit
+    // Wait for recording state (aria-label changes), then click to stop and submit
     await page.waitForTimeout(200)  // let mock recorder collect data
-    await micBtn.click()
+    const recordingBtn = page.getByRole("button", { name: /recording/i })
+    await recordingBtn.click()
 
     // After evaluation: SyllableFeedback should show result-correct
     // Then auto-advance fires after 1s
@@ -272,9 +278,11 @@ test.describe("Speak Mode Session Journey", () => {
 
     // Click mic to start, then stop
     const micBtn = page.getByRole("button", { name: /record pronunciation/i })
+    await expect(micBtn).toBeVisible()
     await micBtn.click()
     await page.waitForTimeout(200)
-    await micBtn.click()
+    const recordingBtn1 = page.getByRole("button", { name: /recording/i })
+    await recordingBtn1.click()
 
     // After wrong result, speak-result state with SyllableFeedback
     const speakResult = page.getByTestId("practice-card-speak-result")
@@ -328,9 +336,11 @@ test.describe("Speak Mode Session Journey", () => {
 
     // Record
     const micBtn = page.getByRole("button", { name: /record pronunciation/i })
+    await expect(micBtn).toBeVisible()
     await micBtn.click()
     await page.waitForTimeout(200)
-    await micBtn.click()
+    const recordingBtn2 = page.getByRole("button", { name: /recording/i })
+    await recordingBtn2.click()
 
     // Wait for wrong result
     const speakResult = page.getByTestId("practice-card-speak-result")
@@ -370,9 +380,11 @@ test.describe("Speak Mode Session Journey", () => {
     await goToSpeakMode(page)
 
     const micBtn = page.getByRole("button", { name: /record pronunciation/i })
+    await expect(micBtn).toBeVisible()
     await micBtn.click()
     await page.waitForTimeout(200)
-    await micBtn.click()
+    const recordingBtn3 = page.getByRole("button", { name: /recording/i })
+    await recordingBtn3.click()
 
     // Wait for result — may show fallback badge or result-partial
     const speakResult = page.getByTestId("practice-card-speak-result")
@@ -417,9 +429,11 @@ test.describe("Speak Mode Session Journey", () => {
 
     // Record
     const micBtn = page.getByRole("button", { name: /record pronunciation/i })
+    await expect(micBtn).toBeVisible()
     await micBtn.click()
     await page.waitForTimeout(200)
-    await micBtn.click()
+    const recordingBtn4 = page.getByRole("button", { name: /recording/i })
+    await recordingBtn4.click()
 
     // Wait for auto-advance (1s timer)
     await page.waitForTimeout(2000)

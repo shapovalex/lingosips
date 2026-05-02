@@ -6,12 +6,14 @@ Router only — no business logic. Business logic delegated to core/fsrs.py and 
 """
 
 from datetime import UTC, datetime
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lingosips.core import cefr as core_cefr
 from lingosips.core import fsrs as core_fsrs
 from lingosips.core import practice as core_practice
 from lingosips.core import settings as core_settings
@@ -93,6 +95,7 @@ class NextDueResponse(BaseModel):
 @router.post("/session/start", response_model=SessionStartResponse)
 async def start_session(
     session: AsyncSession = Depends(get_session),
+    mode: Literal["self_assess", "write", "speak"] | None = Query(default=None),  # AC7
 ) -> SessionStartResponse:
     """Create a practice session, return session_id and due cards.
 
@@ -114,7 +117,7 @@ async def start_session(
     cards = result.scalars().all()
 
     # Create practice session record BEFORE returning cards
-    practice_session = PracticeSession()
+    practice_session = PracticeSession(mode=mode)
     session.add(practice_session)
     await session.commit()
     await session.refresh(practice_session)
@@ -170,6 +173,8 @@ async def rate_card(
             },
         )
     updated_card = await core_fsrs.rate_card(card, request.rating, session, request.session_id)
+    # Invalidate CEFR profile cache — synchronous, zero-latency dict pop (AC4)
+    core_cefr.invalidate_profile_cache(updated_card.target_language)
     return RatedCardResponse.model_validate(updated_card)
 
 
