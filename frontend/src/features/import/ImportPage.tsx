@@ -1,30 +1,33 @@
 /**
  * ImportPage — enum-driven state machine for the import flow.
  *
- * States: "idle" | "parsing" | "preview" | "enriching" | "complete" | "error"
- * Sources: "anki" | "text" | "url"
+ * States: "idle" | "parsing" | "preview" | "enriching" | "importing" | "complete" | "error"
+ * Sources: "anki" | "text" | "url" | "lingosips"
  *
- * AC1: Three source tabs (Anki, Text, URL)
+ * AC1: Four source tabs (Anki, Text, URL, .lingosips)
  * AC2: Anki .apkg file preview
  * AC3: Text/TSV and URL preview
- * AC4: Import start — creates job before enrichment
+ * AC4: Import start — creates job before enrichment (anki/text/url)
  * AC5: Progress ring in sidebar (via useAppStore.setActiveImportJobId)
  * AC6: SSE progress via useImportProgress
+ * AC7: .lingosips import — no enrichment, no SSE, no job_id
  */
 
-import { useState } from "react"
+import { useState, useRef } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { post } from "@/lib/client"
 import { useAppStore } from "@/lib/stores/useAppStore"
 import { useImportProgress } from "./useImportProgress"
 import { AnkiImportPanel } from "./AnkiImportPanel"
 import { TextImportPanel } from "./TextImportPanel"
 import { UrlImportPanel } from "./UrlImportPanel"
+import { LingosipsImportPanel } from "./LingosipsImportPanel"
 import { ImportPreview, type ImportPreviewData, type CardPreviewItemData } from "./ImportPreview"
 
-// ── State machine type ──────────────────────────────────────────────────��─────
+// ── State machine type ─────────────────────────────────────────────────────────
 
-type ImportState = "idle" | "parsing" | "preview" | "enriching" | "complete" | "error"
-type ImportSource = "anki" | "text" | "url"
+type ImportState = "idle" | "parsing" | "preview" | "enriching" | "importing" | "complete" | "error"
+type ImportSource = "anki" | "text" | "url" | "lingosips"
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -34,19 +37,21 @@ export function ImportPage() {
   const [preview, setPreview] = useState<ImportPreviewData | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [completedCount, setCompletedCount] = useState<{ enriched: number; unresolved: number } | null>(null)
+  const [lingosipsImportedCount, setLingosipsImportedCount] = useState<number | null>(null)
+  const lingosipsFileRef = useRef<File | null>(null)
 
+  const queryClient = useQueryClient()
   const setActiveImportJobId = useAppStore((s) => s.setActiveImportJobId)
+  const addNotification = useAppStore((s) => s.addNotification)
   const activeImportJobId = useAppStore((s) => s.activeImportJobId)
   const importProgress = useImportProgress(activeImportJobId)
 
   // Derive effective state from SSE progress when in enriching phase.
-  // Computed during render (no useEffect) to avoid cascading setState calls.
   let effectiveState = importState
   if (importState === "enriching") {
     if (importProgress.status === "complete") effectiveState = "complete"
     else if (importProgress.status === "error") effectiveState = "error"
   }
-  // Derive completedCount and errorMessage from SSE progress (no extra state needed)
   const resolvedCompletedCount =
     effectiveState === "complete"
       ? (completedCount ?? { enriched: importProgress.enriched, unresolved: importProgress.unresolved })
@@ -62,11 +67,9 @@ export function ImportPage() {
     setImportState("parsing")
     setErrorMessage(null)
     try {
-      // Use fetch directly for multipart — post() sends JSON
       const response = await fetch("/import/preview/anki", {
         method: "POST",
         body: formData,
-        // DO NOT set Content-Type — browser sets multipart boundary automatically
       })
       if (!response.ok) {
         const body = await response.json().catch(() => ({}))
@@ -109,9 +112,40 @@ export function ImportPage() {
     }
   }
 
+  async function handleLingosipsPreview(file: File) {
+    setImportState("parsing")
+    setErrorMessage(null)
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+      const response = await fetch("/import/preview/lingosips", {
+        method: "POST",
+        body: formData,
+      })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        throw new Error(body.detail ?? body.title ?? "Failed to parse .lingosips file")
+      }
+      const data = (await response.json()) as ImportPreviewData
+      setPreview(data)
+      setImportState("preview")
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to parse .lingosips file")
+      setImportState("error")
+    }
+  }
+
   async function handleConfirmImport(selectedCards: CardPreviewItemData[]) {
     if (!preview) return
-    setImportState("parsing") // briefly re-use parsing skeleton
+
+    if (activeSource === "lingosips") {
+      // .lingosips: synchronous import — no enrichment, no job, no SSE
+      await handleConfirmLingosipsImport()
+      return
+    }
+
+    // Standard enriched import (anki / text / url)
+    setImportState("parsing")
     try {
       const result = await post<{ job_id: number; card_count: number }>("/import/start", {
         source_type: preview.source_type,
@@ -120,7 +154,7 @@ export function ImportPage() {
           translation: c.translation,
           example_sentence: c.example_sentence,
         })),
-        target_language: "es", // TODO: read from settings (Story 2.4 uses active_target_language)
+        target_language: "es",
         enrich: true,
       })
       setActiveImportJobId(result.job_id)
@@ -132,13 +166,51 @@ export function ImportPage() {
     }
   }
 
+  async function handleConfirmLingosipsImport() {
+    if (!lingosipsFileRef.current) return
+    const _lingosipsFile = lingosipsFileRef.current
+    setImportState("importing")
+    try {
+      const formData = new FormData()
+      formData.append("file", _lingosipsFile)
+      const response = await fetch("/import/start/lingosips", {
+        method: "POST",
+        body: formData,
+      })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        const msg = body.detail ?? body.title ?? "Import failed"
+        throw new Error(msg)
+      }
+      const result = (await response.json()) as { deck_id: number; card_count: number }
+      setLingosipsImportedCount(result.card_count)
+      // Invalidate decks cache so DeckGrid refreshes
+      await queryClient.invalidateQueries({ queryKey: ["decks"] })
+      addNotification({ type: "success", message: `${result.card_count} cards imported` })
+      setImportState("complete")
+      setCompletedCount({ enriched: result.card_count, unresolved: 0 })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Import failed"
+      setErrorMessage(msg)
+      addNotification({ type: "error", message: msg })
+      setImportState("error")
+    }
+  }
+
   function resetToIdle() {
     setImportState("idle")
     setPreview(null)
     setErrorMessage(null)
     setCompletedCount(null)
-    // AC6: clear activeImportJobId so progress ring disappears
+    setLingosipsImportedCount(null)
+    lingosipsFileRef.current = null
     setActiveImportJobId(null)
+  }
+
+  // Wraps handleLingosipsPreview to also store the file in ref
+  async function onLingosipsFileSelected(file: File) {
+    lingosipsFileRef.current = file
+    await handleLingosipsPreview(file)
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -149,13 +221,12 @@ export function ImportPage() {
         <div>
           <h1 className="text-2xl font-semibold text-zinc-50">Import Vocabulary</h1>
           <p className="mt-1 text-sm text-zinc-400">
-            Import from Anki decks, plain text, or a web URL. AI enriches missing fields in the
-            background.
+            Import from Anki decks, plain text, a web URL, or a .lingosips archive.
           </p>
         </div>
 
         {/* State: parsing — skeleton */}
-        {effectiveState === "parsing" && (
+        {(effectiveState === "parsing" || effectiveState === "importing") && (
           <div className="space-y-3 animate-pulse">
             <div className="h-8 bg-zinc-800 rounded-lg w-3/4" />
             <div className="h-32 bg-zinc-800 rounded-lg" />
@@ -197,14 +268,20 @@ export function ImportPage() {
         )}
 
         {/* State: complete */}
-        {effectiveState === "complete" && resolvedCompletedCount && (
+        {effectiveState === "complete" && (resolvedCompletedCount || lingosipsImportedCount !== null) && (
           <div className="rounded-lg bg-zinc-900 border border-green-700/50 p-6 text-center space-y-4">
             <div className="text-green-400 text-lg font-medium">✓ Import Complete</div>
-            <p className="text-zinc-300">
-              {resolvedCompletedCount.enriched} cards enriched
-              {resolvedCompletedCount.unresolved > 0 &&
-                ` · ${resolvedCompletedCount.unresolved} fields could not be resolved`}
-            </p>
+            {activeSource === "lingosips" ? (
+              <p className="text-zinc-300">
+                {lingosipsImportedCount} cards imported
+              </p>
+            ) : resolvedCompletedCount ? (
+              <p className="text-zinc-300">
+                {resolvedCompletedCount.enriched} cards enriched
+                {resolvedCompletedCount.unresolved > 0 &&
+                  ` · ${resolvedCompletedCount.unresolved} fields could not be resolved`}
+              </p>
+            ) : null}
             <button
               type="button"
               onClick={resetToIdle}
@@ -235,7 +312,7 @@ export function ImportPage() {
           <div className="space-y-4">
             {/* Source tabs */}
             <div role="tablist" aria-label="Import source" className="flex gap-1 bg-zinc-900 rounded-lg p-1">
-              {(["anki", "text", "url"] as ImportSource[]).map((src) => (
+              {(["anki", "text", "url", "lingosips"] as ImportSource[]).map((src) => (
                 <button
                   key={src}
                   role="tab"
@@ -248,7 +325,7 @@ export function ImportPage() {
                       : "text-zinc-400 hover:text-zinc-200",
                   ].join(" ")}
                 >
-                  {src === "anki" ? "Anki" : src === "text" ? "Text" : "URL"}
+                  {src === "anki" ? "Anki" : src === "text" ? "Text" : src === "url" ? "URL" : ".lingosips"}
                 </button>
               ))}
             </div>
@@ -265,6 +342,12 @@ export function ImportPage() {
                 onPreviewRequest={handleUrlPreview}
                 isParsing={false}
                 errorMessage={null}
+              />
+            )}
+            {activeSource === "lingosips" && (
+              <LingosipsImportPanel
+                onFileSelected={onLingosipsFileSelected}
+                isParsing={false}
               />
             )}
           </div>

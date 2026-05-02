@@ -39,6 +39,9 @@ class ImportPreviewResponse(BaseModel):
     fields_present: list[str]
     fields_missing_summary: dict[str, int]
     cards: list[CardPreviewItemResponse]
+    # Optional fields — populated by lingosips source
+    deck_name: str | None = None
+    target_language: str | None = None
 
 
 # ── Preview endpoints ─────────────────────────────────────────────────────────
@@ -177,6 +180,79 @@ async def start_import(
         )
     logger.info("import.started", job_id=job_id, card_count=len(card_ids))
     return ImportStartResponse(job_id=job_id, card_count=len(card_ids))
+
+
+# ── .lingosips import endpoints ──────────────────────────────────────────────
+
+
+class LingosipsImportStartResponse(BaseModel):
+    deck_id: int
+    card_count: int
+
+
+@router.post("/preview/lingosips", response_model=ImportPreviewResponse)
+async def preview_lingosips(file: UploadFile = File(...)) -> ImportPreviewResponse:
+    """Parse uploaded .lingosips file and return preview (no cards created)."""
+    file_bytes = await file.read()
+    try:
+        preview = core_imports.parse_lingosips_file(file_bytes)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "type": "/errors/invalid-lingosips-file",
+                "title": "Invalid .lingosips file",
+                "status": 422,
+                "detail": str(exc),
+            },
+        )
+    return ImportPreviewResponse(
+        source_type="lingosips",
+        total_cards=preview.total_cards,
+        fields_present=["target_word", "translation", "forms", "example_sentences"],
+        fields_missing_summary={},  # lingosips files are already enriched
+        deck_name=preview.deck_name,
+        target_language=preview.target_language,
+        cards=[
+            CardPreviewItemResponse(
+                target_word=c.target_word,
+                translation=c.translation,
+                example_sentence=None,
+                has_audio=c.audio_file is not None,
+                fields_missing=[],
+                selected=True,
+            )
+            for c in preview.sample_cards
+        ],
+    )
+
+
+@router.post("/start/lingosips", response_model=LingosipsImportStartResponse, status_code=201)
+async def start_lingosips_import(
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+) -> LingosipsImportStartResponse:
+    """Import a .lingosips file: create deck + all cards synchronously (no enrichment)."""
+    file_bytes = await file.read()
+    try:
+        deck_id, card_count = await core_imports.import_lingosips_deck(file_bytes, session)
+    except ValueError as exc:
+        msg = str(exc)
+        status = 409 if "conflict" in msg.lower() else 422
+        error_type = (
+            "/errors/deck-name-conflict" if status == 409 else "/errors/invalid-lingosips-file"
+        )
+        raise HTTPException(
+            status_code=status,
+            detail={
+                "type": error_type,
+                "title": "Deck name conflict" if status == 409 else "Invalid .lingosips file",
+                "status": status,
+                "detail": msg,
+            },
+        )
+    logger.info("lingosips.import.complete", deck_id=deck_id, card_count=card_count)
+    return LingosipsImportStartResponse(deck_id=deck_id, card_count=card_count)
 
 
 # ── Progress SSE endpoint ─────────────────────────────────────────────────────

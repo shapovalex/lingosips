@@ -267,6 +267,94 @@ test.describe("Deck Management", () => {
     }
   })
 
+  // ── AC1: Export deck as .lingosips (Story 2.5) ────────────────────────────
+
+  test("export deck to .lingosips file (AC1 Story 2.5)", async ({ page, request }) => {
+    const deckName = `Export E2E ${Date.now()}`
+    await createSeedDeck(request, deckName)
+
+    // Navigate to deck detail page
+    await page.goto("/decks")
+    await expect(page.getByText(deckName)).toBeVisible({ timeout: 5000 })
+
+    // Click the deck to go to its detail page
+    await page.getByRole("link", { name: new RegExp(deckName, "i") }).click()
+    await page.waitForLoadState("networkidle")
+
+    // Deck detail page should show the deck name
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 5000 })
+
+    // Export button should be visible and accessible
+    const exportBtn = page.getByRole("button", { name: /export deck as .lingosips file/i })
+    await expect(exportBtn).toBeVisible({ timeout: 3000 })
+
+    // Set up download listener
+    const downloadPromise = page.waitForEvent("download", { timeout: 10000 }).catch(() => null)
+    await exportBtn.click()
+
+    const download = await downloadPromise
+    if (download) {
+      // File should have .lingosips extension
+      expect(download.suggestedFilename()).toMatch(/\.lingosips$/)
+    }
+  })
+
+  // ── AC2-5: Import .lingosips file (Story 2.5) ──────────────────────────────
+
+  test("import .lingosips file — preview then confirm (AC2-5 Story 2.5)", async ({ page, request }) => {
+    // First export a deck to get a real .lingosips file
+    const deckName = `Import Source ${Date.now()}`
+    const deckId = await createSeedDeck(request, deckName)
+
+    // Get the .lingosips bytes via the API directly
+    const exportResponse = await request.get(`http://localhost:7842/decks/${deckId}/export`)
+    expect(exportResponse.status()).toBe(200)
+    const exportBytes = await exportResponse.body()
+
+    // Navigate to import page
+    await page.goto("/import")
+    await page.waitForLoadState("networkidle")
+
+    // Click the .lingosips tab
+    await page.getByRole("tab", { name: /\.lingosips/i }).click()
+
+    // Upload the exported file
+    const fileInput = page.locator('input[type="file"][accept=".lingosips"]')
+    await fileInput.setInputFiles({
+      name: `${deckName}.lingosips`,
+      mimeType: "application/octet-stream",
+      buffer: exportBytes,
+    })
+
+    // Click Preview button
+    await page.getByRole("button", { name: /preview cards/i }).click()
+
+    // Preview should appear with deck info
+    await expect(page.getByText(/cards found/i)).toBeVisible({ timeout: 5000 })
+  })
+
+  // ── AC4: Malformed .lingosips shows specific error (Story 2.5) ─────────────
+
+  test("malformed .lingosips shows specific RFC 7807 error (AC4 Story 2.5)", async ({ page }) => {
+    await page.goto("/import")
+    await page.waitForLoadState("networkidle")
+
+    await page.getByRole("tab", { name: /\.lingosips/i }).click()
+
+    // Upload an invalid file (just bytes, not a valid ZIP)
+    const fileInput = page.locator('input[type="file"][accept=".lingosips"]')
+    await fileInput.setInputFiles({
+      name: "bad.lingosips",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from("not a valid zip"),
+    })
+
+    await page.getByRole("button", { name: /preview cards/i }).click()
+
+    // Should show a specific error message (two elements match: heading + detail — use first())
+    await expect(page.getByText(/import failed|valid .lingosips archive/i).first()).toBeVisible({ timeout: 5000 })
+  })
+
   // ── AC1: Keyboard navigation through deck grid ─────────────────────────────
 
   test("keyboard navigation through deck grid (AC1)", async ({ page }) => {

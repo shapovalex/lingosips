@@ -642,7 +642,9 @@ class TestRunEnrichment:
             assert "Simulated DB failure" in job.error_message
         await engine.dispose()
 
-    async def test_run_enrichment_inner_except_handles_secondary_db_failure(self, tmp_path) -> None:
+    async def test_run_enrichment_inner_except_handles_secondary_db_failure(
+        self, tmp_path
+    ) -> None:
         """Inner except:pass handles DB failure inside outer except block (lines 415-416)."""
         from unittest.mock import patch
 
@@ -684,3 +686,357 @@ class TestRunEnrichment:
             assert job is not None
             assert job.status == "running"  # never reached "complete" or "failed"
         await engine.dispose()
+
+
+# ── Helpers for .lingosips test fixtures ──────────────────────────────────────
+
+
+def _make_lingosips_file(
+    deck_name: str = "Test Deck",
+    target_language: str = "es",
+    cards: list[dict] | None = None,
+    format_version: str = "1",
+    extra_keys: dict | None = None,
+    audio_files: dict[str, bytes] | None = None,
+) -> bytes:
+    """Build a minimal valid .lingosips ZIP file for testing."""
+    if cards is None:
+        cards = [
+            {
+                "target_word": "hola",
+                "translation": "hello",
+                "forms": None,
+                "example_sentences": None,
+                "personal_note": None,
+                "image_skipped": False,
+                "card_type": "word",
+                "target_language": target_language,
+                "stability": 2.5,
+                "difficulty": 5.0,
+                "due": "2026-05-15T10:00:00+00:00",
+                "last_review": "2026-05-01T10:00:00+00:00",
+                "reps": 3,
+                "lapses": 0,
+                "fsrs_state": "Review",
+                "audio_file": None,
+            }
+        ]
+    deck_json: dict = {
+        "format_version": format_version,
+        "deck": {"name": deck_name, "target_language": target_language},
+        "cards": cards,
+    }
+    if extra_keys:
+        deck_json.update(extra_keys)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("deck.json", json.dumps(deck_json, ensure_ascii=False, indent=2))
+        if audio_files:
+            for filename, data in audio_files.items():
+                zf.writestr(f"audio/{filename}", data)
+    return buf.getvalue()
+
+
+# ── TestParseLingosipsFile ─────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+class TestParseLingosipsFile:
+    def test_valid_file_returns_preview(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        file_bytes = _make_lingosips_file()
+        preview = parse_lingosips_file(file_bytes)
+        assert preview.deck_name == "Test Deck"
+        assert preview.target_language == "es"
+        assert preview.total_cards == 1
+        assert len(preview.sample_cards) == 1
+        assert preview.sample_cards[0].target_word == "hola"
+
+    def test_not_a_zip_raises_value_error(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        with pytest.raises(ValueError, match="valid .lingosips archive"):
+            parse_lingosips_file(b"not a zip")
+
+    def test_missing_deck_json_raises_value_error(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("other.txt", "data")
+        with pytest.raises(ValueError, match="missing required deck.json"):
+            parse_lingosips_file(buf.getvalue())
+
+    def test_missing_format_version_key_raises_value_error(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            payload = {"deck": {"name": "X", "target_language": "es"}, "cards": []}
+            zf.writestr("deck.json", json.dumps(payload))
+        with pytest.raises(ValueError, match="missing required key: format_version"):
+            parse_lingosips_file(buf.getvalue())
+
+    def test_missing_deck_key_raises_value_error(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("deck.json", json.dumps({"format_version": "1", "cards": []}))
+        with pytest.raises(ValueError, match="missing required key: deck"):
+            parse_lingosips_file(buf.getvalue())
+
+    def test_missing_cards_key_raises_value_error(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(
+                "deck.json",
+                json.dumps({"format_version": "1", "deck": {"name": "X", "target_language": "es"}}),
+            )
+        with pytest.raises(ValueError, match="missing required key: cards"):
+            parse_lingosips_file(buf.getvalue())
+
+    def test_card_missing_target_word_raises_value_error(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        file_bytes = _make_lingosips_file(cards=[{"translation": "hello"}])
+        with pytest.raises(ValueError, match="Card 0: missing required field 'target_word'"):
+            parse_lingosips_file(file_bytes)
+
+    def test_card_empty_target_word_raises_value_error(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        file_bytes = _make_lingosips_file(cards=[{"target_word": "   ", "target_language": "es"}])
+        with pytest.raises(ValueError, match="Card 0: missing required field 'target_word'"):
+            parse_lingosips_file(file_bytes)
+
+    def test_unsupported_format_version_raises_value_error(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            payload = {
+                "format_version": "2",
+                "deck": {"name": "X", "target_language": "es"},
+                "cards": [],
+            }
+            zf.writestr("deck.json", json.dumps(payload))
+        with pytest.raises(ValueError, match="Unsupported format_version"):
+            parse_lingosips_file(buf.getvalue())
+
+    def test_format_version_integer_raises_value_error(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            # format_version as integer (not string) — spec requires string "1"
+            payload = {
+                "format_version": 1,
+                "deck": {"name": "X", "target_language": "es"},
+                "cards": [],
+            }
+            zf.writestr("deck.json", json.dumps(payload))
+        with pytest.raises(ValueError, match="Unsupported format_version"):
+            parse_lingosips_file(buf.getvalue())
+
+    def test_sample_cards_limited_to_five(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        many_cards = [
+            {"target_word": f"word{i}", "target_language": "es"} for i in range(10)
+        ]
+        file_bytes = _make_lingosips_file(cards=many_cards)
+        preview = parse_lingosips_file(file_bytes)
+        assert preview.total_cards == 10
+        assert len(preview.sample_cards) == 5  # capped at 5
+
+    def test_has_audio_true_when_card_has_audio_file(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        cards = [
+            {
+                "target_word": "hola",
+                "target_language": "es",
+                "audio_file": "42.wav",
+            }
+        ]
+        file_bytes = _make_lingosips_file(cards=cards)
+        preview = parse_lingosips_file(file_bytes)
+        assert preview.has_audio is True
+
+    def test_has_audio_false_when_no_audio(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        file_bytes = _make_lingosips_file()  # default cards have audio_file=None
+        preview = parse_lingosips_file(file_bytes)
+        assert preview.has_audio is False
+
+    def test_missing_deck_name_field_raises_value_error(self) -> None:
+        from lingosips.core.imports import parse_lingosips_file
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(
+                "deck.json",
+                json.dumps({"format_version": "1", "deck": {"target_language": "es"}, "cards": []}),
+            )
+        with pytest.raises(ValueError, match="missing required deck field: name"):
+            parse_lingosips_file(buf.getvalue())
+
+
+# ── TestImportLingosipsDeck ────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+class TestImportLingosipsDeck:
+    async def test_import_valid_file_creates_deck_and_cards(self, session) -> None:
+        from lingosips.core.imports import import_lingosips_deck
+
+        file_bytes = _make_lingosips_file(deck_name="Imported Deck", target_language="es")
+        deck_id, card_count = await import_lingosips_deck(file_bytes, session)
+        assert card_count == 1
+        assert isinstance(deck_id, int)
+
+        # Verify deck was created
+        from sqlalchemy import select
+
+        from lingosips.db.models import Deck
+        deck = (await session.execute(select(Deck).where(Deck.id == deck_id))).scalar_one()
+        assert deck.name == "Imported Deck"
+        assert deck.target_language == "es"
+
+    async def test_import_cards_have_correct_fsrs_state(self, session) -> None:
+        from sqlalchemy import select
+
+        from lingosips.core.imports import import_lingosips_deck
+        from lingosips.db.models import Card
+
+        cards = [
+            {
+                "target_word": "melancólico",
+                "translation": "melancholic",
+                "target_language": "es",
+                "stability": 2.5,
+                "difficulty": 5.0,
+                "due": "2026-05-15T10:00:00+00:00",
+                "last_review": "2026-05-01T10:00:00+00:00",
+                "reps": 3,
+                "lapses": 1,
+                "fsrs_state": "Review",
+                "audio_file": None,
+            }
+        ]
+        file_bytes = _make_lingosips_file(deck_name="FSRS Deck", cards=cards)
+        deck_id, _ = await import_lingosips_deck(file_bytes, session)
+
+        result = await session.execute(
+            select(Card).where(Card.deck_id == deck_id)
+        )
+        card = result.scalars().first()
+        assert card is not None
+        assert card.target_word == "melancólico"
+        assert card.stability == 2.5
+        assert card.reps == 3
+        assert card.lapses == 1
+        assert card.fsrs_state == "Review"
+
+    async def test_import_duplicate_deck_name_raises_value_error(self, session) -> None:
+        from lingosips.core.imports import import_lingosips_deck
+
+        file_bytes = _make_lingosips_file(deck_name="Duplicate Deck")
+        await import_lingosips_deck(file_bytes, session)
+        with pytest.raises(ValueError, match="conflict"):
+            await import_lingosips_deck(file_bytes, session)
+
+    async def test_import_malformed_file_raises_value_error(self, session) -> None:
+        from lingosips.core.imports import import_lingosips_deck
+
+        with pytest.raises(ValueError, match="valid .lingosips archive"):
+            await import_lingosips_deck(b"not a zip", session)
+
+    async def test_import_audio_files_stored_and_url_set(
+        self, session, tmp_path
+    ) -> None:
+        from unittest.mock import patch
+
+        from sqlalchemy import select
+
+        from lingosips.core.imports import import_lingosips_deck
+        from lingosips.db.models import Card
+
+        cards = [
+            {
+                "target_word": "hola",
+                "target_language": "es",
+                "stability": 0.0,
+                "difficulty": 0.0,
+                "due": "2026-05-15T10:00:00+00:00",
+                "last_review": None,
+                "reps": 0,
+                "lapses": 0,
+                "fsrs_state": "New",
+                "audio_file": "99.wav",
+            }
+        ]
+        audio_data = b"RIFF fake wav"
+        file_bytes = _make_lingosips_file(
+            deck_name="Audio Import Deck",
+            cards=cards,
+            audio_files={"99.wav": audio_data},
+        )
+
+        audio_dir = tmp_path / "audio"
+        audio_dir.mkdir()
+        with patch("lingosips.core.imports.AUDIO_DIR", audio_dir):
+            deck_id, card_count = await import_lingosips_deck(file_bytes, session)
+
+        assert card_count == 1
+        result = await session.execute(select(Card).where(Card.deck_id == deck_id))
+        card = result.scalars().first()
+        assert card is not None
+        assert card.audio_url is not None
+        assert card.audio_url.startswith("/cards/")
+        # Check audio file was written to disk
+        written_file = audio_dir / f"{card.id}.wav"
+        assert written_file.exists()
+        assert written_file.read_bytes() == audio_data
+
+    async def test_import_audio_file_missing_in_zip_skips_gracefully(
+        self, session, tmp_path
+    ) -> None:
+        from unittest.mock import patch
+
+        from sqlalchemy import select
+
+        from lingosips.core.imports import import_lingosips_deck
+        from lingosips.db.models import Card
+
+        cards = [
+            {
+                "target_word": "agua",
+                "target_language": "es",
+                "stability": 0.0,
+                "difficulty": 0.0,
+                "due": "2026-05-15T10:00:00+00:00",
+                "last_review": None,
+                "reps": 0,
+                "lapses": 0,
+                "fsrs_state": "New",
+                "audio_file": "missing.wav",  # not in ZIP
+            }
+        ]
+        file_bytes = _make_lingosips_file(deck_name="Missing Audio Deck", cards=cards)
+
+        audio_dir = tmp_path / "audio2"
+        audio_dir.mkdir()
+        with patch("lingosips.core.imports.AUDIO_DIR", audio_dir):
+            deck_id, _ = await import_lingosips_deck(file_bytes, session)
+
+        result = await session.execute(select(Card).where(Card.deck_id == deck_id))
+        card = result.scalars().first()
+        assert card is not None
+        assert card.audio_url is None  # gracefully skipped

@@ -1,10 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { DeckGrid } from "../features/decks"
+import { createFileRoute, Outlet } from "@tanstack/react-router"
 
 export const Route = createFileRoute("/decks")({
-  component: DecksPage,
+  component: DecksLayout,
 })
 
-function DecksPage() {
-  return <DeckGrid />
+/**
+ * Layout route for /decks and /decks/$deckId.
+ * Renders <Outlet /> so child routes (DeckGrid index, DeckDetail) can appear.
+ */
+function DecksLayout() {
+  return <Outlet />
 }

@@ -615,3 +615,199 @@ class TestImportProgress:
         assert "progress" in text  # first poll: running
         assert "error" in text  # second poll: failed → error event
         assert "LLM service unavailable" in text
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _make_lingosips_bytes(
+    deck_name: str = "Test Deck",
+    target_language: str = "es",
+    cards: list[dict] | None = None,
+    audio_files: dict[str, bytes] | None = None,
+) -> bytes:
+    """Build a minimal valid .lingosips ZIP for API-level tests."""
+    if cards is None:
+        cards = [
+            {
+                "target_word": "hola",
+                "translation": "hello",
+                "target_language": target_language,
+                "stability": 0.0,
+                "difficulty": 0.0,
+                "due": "2026-05-15T10:00:00+00:00",
+                "last_review": None,
+                "reps": 0,
+                "lapses": 0,
+                "fsrs_state": "New",
+                "audio_file": None,
+            }
+        ]
+    deck_json = {
+        "format_version": "1",
+        "deck": {"name": deck_name, "target_language": target_language},
+        "cards": cards,
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("deck.json", json.dumps(deck_json))
+        if audio_files:
+            for filename, data in audio_files.items():
+                zf.writestr(f"audio/{filename}", data)
+    return buf.getvalue()
+
+
+# ── TestLingosipsPreview ──────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+class TestLingosipsPreview:
+    async def test_preview_valid_file_returns_200(self, client: AsyncClient) -> None:
+        file_bytes = _make_lingosips_bytes()
+        response = await client.post(
+            "/import/preview/lingosips",
+            files={"file": ("test.lingosips", file_bytes, "application/octet-stream")},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["source_type"] == "lingosips"
+        assert body["total_cards"] == 1
+        assert body["deck_name"] == "Test Deck"
+        assert body["target_language"] == "es"
+
+    async def test_preview_malformed_zip_returns_422(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/import/preview/lingosips",
+            files={"file": ("bad.lingosips", b"not a zip", "application/octet-stream")},
+        )
+        assert response.status_code == 422
+        body = response.json()
+        assert body["type"] == "/errors/invalid-lingosips-file"
+        assert "detail" in body
+
+    async def test_preview_missing_deck_json_returns_422(self, client: AsyncClient) -> None:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("other.txt", "data")
+        response = await client.post(
+            "/import/preview/lingosips",
+            files={"file": ("bad.lingosips", buf.getvalue(), "application/octet-stream")},
+        )
+        assert response.status_code == 422
+        body = response.json()
+        assert "deck.json" in body["detail"]
+
+    async def test_preview_missing_required_fields_returns_422(self, client: AsyncClient) -> None:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("deck.json", json.dumps({"format_version": "1"}))
+        response = await client.post(
+            "/import/preview/lingosips",
+            files={"file": ("bad.lingosips", buf.getvalue(), "application/octet-stream")},
+        )
+        assert response.status_code == 422
+
+    async def test_preview_cards_malformed_returns_422(self, client: AsyncClient) -> None:
+        """Card missing target_word → 422."""
+        file_bytes = _make_lingosips_bytes(cards=[{"translation": "hello"}])
+        response = await client.post(
+            "/import/preview/lingosips",
+            files={"file": ("bad.lingosips", file_bytes, "application/octet-stream")},
+        )
+        assert response.status_code == 422
+
+    async def test_preview_response_includes_sample_cards(self, client: AsyncClient) -> None:
+        """Preview response includes up to 5 sample cards."""
+        cards = [
+            {
+                "target_word": f"word{i}",
+                "target_language": "es",
+                "stability": 0.0,
+                "difficulty": 0.0,
+                "due": "2026-05-15T10:00:00+00:00",
+                "last_review": None,
+                "reps": 0,
+                "lapses": 0,
+                "fsrs_state": "New",
+                "audio_file": None,
+            }
+            for i in range(8)
+        ]
+        file_bytes = _make_lingosips_bytes(cards=cards)
+        response = await client.post(
+            "/import/preview/lingosips",
+            files={"file": ("test.lingosips", file_bytes, "application/octet-stream")},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total_cards"] == 8
+        assert len(body["cards"]) <= 5  # capped
+
+
+# ── TestLingosipsImportStart ──────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+class TestLingosipsImportStart:
+    async def test_start_valid_file_returns_201(
+        self, client: AsyncClient, session: AsyncSession
+    ) -> None:
+
+        file_bytes = _make_lingosips_bytes(deck_name="API Import Deck Unique1")
+        response = await client.post(
+            "/import/start/lingosips",
+            files={"file": ("test.lingosips", file_bytes, "application/octet-stream")},
+        )
+        assert response.status_code == 201
+        body = response.json()
+        assert "deck_id" in body
+        assert body["card_count"] == 1
+
+    async def test_start_creates_deck_and_cards_in_db(
+        self, client: AsyncClient, session: AsyncSession
+    ) -> None:
+        from sqlalchemy import select
+
+        from lingosips.db.models import Card, Deck
+
+        file_bytes = _make_lingosips_bytes(deck_name="DB Check Deck Unique2")
+        response = await client.post(
+            "/import/start/lingosips",
+            files={"file": ("test.lingosips", file_bytes, "application/octet-stream")},
+        )
+        assert response.status_code == 201
+        deck_id = response.json()["deck_id"]
+
+        deck = (await session.execute(select(Deck).where(Deck.id == deck_id))).scalar_one()
+        assert deck.name == "DB Check Deck Unique2"
+        cards = (await session.execute(select(Card).where(Card.deck_id == deck_id))).scalars().all()
+        assert len(cards) == 1
+        assert cards[0].target_word == "hola"
+
+    async def test_start_malformed_file_returns_422(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/import/start/lingosips",
+            files={"file": ("bad.lingosips", b"not a zip", "application/octet-stream")},
+        )
+        assert response.status_code == 422
+        body = response.json()
+        assert body["type"] == "/errors/invalid-lingosips-file"
+
+    async def test_start_duplicate_deck_name_returns_409(
+        self, client: AsyncClient
+    ) -> None:
+        file_bytes = _make_lingosips_bytes(deck_name="Conflict Deck Unique3")
+        # First import succeeds
+        r1 = await client.post(
+            "/import/start/lingosips",
+            files={"file": ("test.lingosips", file_bytes, "application/octet-stream")},
+        )
+        assert r1.status_code == 201
+        # Second import of same deck name → 409
+        r2 = await client.post(
+            "/import/start/lingosips",
+            files={"file": ("test.lingosips", file_bytes, "application/octet-stream")},
+        )
+        assert r2.status_code == 409
+        body = r2.json()
+        assert body["type"] == "/errors/deck-name-conflict"

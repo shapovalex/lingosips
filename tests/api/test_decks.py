@@ -471,3 +471,177 @@ class TestDeleteDeck:
         assert response.status_code == 200
         ids = [d["id"] for d in response.json()]
         assert seed_deck.id not in ids
+
+
+# ── TestGetDeck ──────────────────────────────────────────────────────────────
+
+
+class TestGetDeck:
+    @pytest.fixture(autouse=True)
+    async def truncate(self, test_engine):
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM decks"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    async def test_get_deck_success(self, client: AsyncClient, seed_deck: Deck):
+        """GET /decks/{deck_id} returns the deck with full response shape."""
+        response = await client.get(f"/decks/{seed_deck.id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == seed_deck.id
+        assert data["name"] == "Spanish Vocab"
+        assert data["target_language"] == "es"
+        assert "card_count" in data
+        assert "due_card_count" in data
+        assert "created_at" in data
+        assert "updated_at" in data
+
+    async def test_get_deck_not_found_returns_404(self, client: AsyncClient):
+        """GET /decks/99999 returns 404 RFC 7807."""
+        response = await client.get("/decks/99999")
+        assert response.status_code == 404
+        body = response.json()
+        assert body["type"] == "/errors/deck-not-found"
+        assert body["status"] == 404
+        assert "99999" in body["detail"]
+
+    async def test_get_deck_card_count_zero_when_no_cards(
+        self, client: AsyncClient, seed_deck: Deck
+    ):
+        """GET /decks/{deck_id} returns card_count=0 when deck has no cards."""
+        response = await client.get(f"/decks/{seed_deck.id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["card_count"] == 0
+        assert data["due_card_count"] == 0
+
+    async def test_get_deck_card_count_accurate(
+        self, client: AsyncClient, seed_deck_with_cards: tuple[Deck, list[Card]]
+    ):
+        """GET /decks/{deck_id} returns correct card_count and due_card_count."""
+        deck, _ = seed_deck_with_cards
+        response = await client.get(f"/decks/{deck.id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["card_count"] == 3
+        assert data["due_card_count"] == 2
+
+
+# ── TestExportDeck ───────────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+class TestExportDeck:
+    """API-level tests for GET /decks/{deck_id}/export."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate(self, test_engine):
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM decks"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    async def test_export_deck_unknown_id_returns_404(self, client: AsyncClient):
+        """GET /decks/99999/export returns 404 RFC 7807."""
+        response = await client.get("/decks/99999/export")
+        assert response.status_code == 404
+        body = response.json()
+        assert body["type"] == "/errors/deck-not-found"
+
+    async def test_export_deck_returns_zip_content_type(
+        self, client: AsyncClient, seed_deck: Deck
+    ):
+        """Export returns application/zip content type."""
+        response = await client.get(f"/decks/{seed_deck.id}/export")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/zip"
+
+    async def test_export_deck_returns_lingosips_filename(
+        self, client: AsyncClient, seed_deck: Deck
+    ):
+        """Content-Disposition header contains .lingosips filename."""
+        response = await client.get(f"/decks/{seed_deck.id}/export")
+        assert response.status_code == 200
+        cd = response.headers.get("content-disposition", "")
+        assert ".lingosips" in cd
+
+    async def test_export_deck_zip_contains_deck_json(
+        self, client: AsyncClient, seed_deck: Deck
+    ):
+        """The downloaded ZIP contains deck.json."""
+        import io
+        import zipfile
+
+        response = await client.get(f"/decks/{seed_deck.id}/export")
+        assert response.status_code == 200
+        zf = zipfile.ZipFile(io.BytesIO(response.content))
+        assert "deck.json" in zf.namelist()
+
+    async def test_export_deck_json_has_correct_format_version(
+        self, client: AsyncClient, seed_deck: Deck
+    ):
+        """deck.json inside the ZIP has format_version='1'."""
+        import io
+        import zipfile
+
+        response = await client.get(f"/decks/{seed_deck.id}/export")
+        assert response.status_code == 200
+        zf = zipfile.ZipFile(io.BytesIO(response.content))
+        deck_json = json.loads(zf.read("deck.json"))
+        assert deck_json["format_version"] == "1"
+        assert deck_json["deck"]["name"] == seed_deck.name
+        assert deck_json["deck"]["target_language"] == seed_deck.target_language
+
+    async def test_export_deck_empty_deck_has_cards_array(
+        self, client: AsyncClient, seed_deck: Deck
+    ):
+        """Exporting a deck with no cards produces deck.json with 'cards': []."""
+        import io
+        import zipfile
+
+        response = await client.get(f"/decks/{seed_deck.id}/export")
+        assert response.status_code == 200
+        zf = zipfile.ZipFile(io.BytesIO(response.content))
+        deck_json = json.loads(zf.read("deck.json"))
+        assert deck_json["cards"] == []
+
+    async def test_export_deck_with_cards_includes_card_data(
+        self, client: AsyncClient, session: AsyncSession, seed_deck: Deck
+    ):
+        """Deck with cards exports all cards in deck.json."""
+        import io
+        import zipfile
+
+        card = Card(
+            target_word="melancólico",
+            translation="melancholic",
+            target_language="es",
+            deck_id=seed_deck.id,
+        )
+        session.add(card)
+        await session.commit()
+
+        response = await client.get(f"/decks/{seed_deck.id}/export")
+        assert response.status_code == 200
+        zf = zipfile.ZipFile(io.BytesIO(response.content))
+        deck_json = json.loads(zf.read("deck.json"))
+        assert len(deck_json["cards"]) == 1
+        assert deck_json["cards"][0]["target_word"] == "melancólico"
+        assert deck_json["cards"][0]["translation"] == "melancholic"
+
+    async def test_export_deck_card_no_ids_in_export(
+        self, client: AsyncClient, session: AsyncSession, seed_deck: Deck
+    ):
+        """IDs are NOT exported in card JSON."""
+        import io
+        import zipfile
+
+        card = Card(target_word="agua", target_language="es", deck_id=seed_deck.id)
+        session.add(card)
+        await session.commit()
+
+        response = await client.get(f"/decks/{seed_deck.id}/export")
+        zf = zipfile.ZipFile(io.BytesIO(response.content))
+        deck_json = json.loads(zf.read("deck.json"))
+        assert "id" not in deck_json["cards"][0]

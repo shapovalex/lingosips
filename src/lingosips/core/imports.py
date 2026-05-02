@@ -1,10 +1,11 @@
 """Import pipeline business logic — parsing and enrichment.
 
-IMPORTANT: genanki is for EXPORT (Story 2.5), not for reading .apkg files.
-An .apkg is a ZIP file containing 'collection.anki2' (SQLite DB).
-Parse it with Python's built-in zipfile + sqlite3.
+IMPORTANT: genanki is write-only and NOT used here.
+.apkg files: ZIP archive containing 'collection.anki2' (SQLite DB) — parse with zipfile + sqlite3.
+.lingosips files: ZIP archive with deck.json manifest — parse with stdlib zipfile only.
 """
 
+import asyncio
 import io
 import json
 import os
@@ -14,11 +15,16 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal
 
 import httpx
 import structlog
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+# Audio directory (same as core/cards.py and core/decks.py)
+AUDIO_DIR = Path.home() / ".lingosips" / "audio"
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +48,192 @@ class ImportPreview:
     fields_present: list[str]  # fields that exist in at least one source card
     fields_missing_summary: dict[str, int]  # field_name → count of cards missing it
     cards: list[CardPreviewItem]
+
+
+# ── .lingosips format types ───────────────────────────────────────────────────
+
+
+@dataclass
+class LingosipsCardData:
+    """Parsed card from deck.json, preserving all fields including FSRS state."""
+
+    target_word: str
+    translation: str | None
+    forms: str | None  # raw JSON string as-is from deck.json
+    example_sentences: str | None  # raw JSON string as-is
+    personal_note: str | None
+    image_skipped: bool
+    card_type: str
+    target_language: str
+    stability: float
+    difficulty: float
+    due: datetime
+    last_review: datetime | None
+    reps: int
+    lapses: int
+    fsrs_state: str
+    audio_file: str | None  # filename in archive's audio/ folder, or None
+
+
+@dataclass
+class LingosipsImportPreview:
+    """Preview returned by parse_lingosips_file() — used by API response."""
+
+    deck_name: str
+    target_language: str
+    total_cards: int
+    sample_cards: list[LingosipsCardData]  # first 5 only
+    has_audio: bool  # True if at least one card has audio_file
+
+
+def _parse_dt(value: str | None) -> datetime | None:
+    """Parse ISO 8601 datetime string to UTC-aware datetime, or return None."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+        return dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)
+    except (ValueError, TypeError):
+        return None
+
+
+def parse_lingosips_file(file_bytes: bytes) -> LingosipsImportPreview:
+    """Parse a .lingosips ZIP archive into a LingosipsImportPreview.
+
+    Validates: valid ZIP, contains deck.json, has required keys (format_version, deck, cards),
+    each card has at minimum target_word.
+
+    Raises ValueError with descriptive message for each validation failure.
+    """
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(file_bytes))
+    except zipfile.BadZipFile:
+        raise ValueError("File must be a valid .lingosips archive")
+
+    if "deck.json" not in zf.namelist():
+        raise ValueError("Archive is missing required deck.json")
+
+    raw = json.loads(zf.read("deck.json"))
+
+    for key in ("format_version", "deck", "cards"):
+        if key not in raw:
+            raise ValueError(f"deck.json missing required key: {key}")
+
+    if raw["format_version"] != "1":
+        raise ValueError(
+            f"Unsupported format_version '{raw['format_version']}'; expected '1'"
+        )
+
+    deck_data = raw["deck"]
+    for key in ("name", "target_language"):
+        if key not in deck_data:
+            raise ValueError(f"deck.json missing required deck field: {key}")
+
+    now = datetime.now(UTC)
+    cards: list[LingosipsCardData] = []
+    for i, c in enumerate(raw["cards"]):
+        if "target_word" not in c or not str(c["target_word"]).strip():
+            raise ValueError(f"Card {i}: missing required field 'target_word'")
+        cards.append(
+            LingosipsCardData(
+                target_word=c["target_word"],
+                translation=c.get("translation"),
+                forms=c.get("forms"),
+                example_sentences=c.get("example_sentences"),
+                personal_note=c.get("personal_note"),
+                image_skipped=bool(c.get("image_skipped", False)),
+                card_type=c.get("card_type", "word"),
+                target_language=c.get("target_language", deck_data["target_language"]),
+                stability=float(c.get("stability", 0.0)),
+                difficulty=float(c.get("difficulty", 0.0)),
+                due=_parse_dt(c.get("due")) or now,
+                last_review=_parse_dt(c.get("last_review")),
+                reps=int(c.get("reps", 0)),
+                lapses=int(c.get("lapses", 0)),
+                fsrs_state=c.get("fsrs_state", "New"),
+                audio_file=c.get("audio_file"),
+            )
+        )
+
+    return LingosipsImportPreview(
+        deck_name=deck_data["name"],
+        target_language=deck_data["target_language"],
+        total_cards=len(cards),
+        sample_cards=cards[:5],
+        has_audio=any(c.audio_file for c in cards),
+    )
+
+
+async def import_lingosips_deck(
+    file_bytes: bytes, session: AsyncSession
+) -> tuple[int, int]:
+    """Import a .lingosips archive into the database.
+
+    Creates deck + all cards in a single transaction. Audio files are written to disk
+    using asyncio.to_thread() after session.flush() assigns card IDs.
+
+    Returns (deck_id, card_count).
+    Raises ValueError('conflict') if deck name already exists for target language.
+    Raises ValueError for malformed files.
+    """
+    from lingosips.core import decks as core_decks
+    from lingosips.db.models import Card
+
+    preview = parse_lingosips_file(file_bytes)  # validates fully
+    zf = zipfile.ZipFile(io.BytesIO(file_bytes))
+
+    # create_deck raises ValueError('conflict') if name+language already exists
+    deck = await core_decks.create_deck(
+        name=preview.deck_name,
+        target_language=preview.target_language,
+        session=session,
+    )
+
+    # Re-read all cards from raw JSON (preview only has first 5)
+    all_cards_raw = json.loads(zf.read("deck.json"))["cards"]
+    created_cards: list[tuple[Card, str | None]] = []
+
+    now = datetime.now(UTC)
+    for card_data in all_cards_raw:
+        card = Card(
+            target_word=card_data["target_word"],
+            translation=card_data.get("translation"),
+            forms=card_data.get("forms"),
+            example_sentences=card_data.get("example_sentences"),
+            personal_note=card_data.get("personal_note"),
+            image_skipped=bool(card_data.get("image_skipped", False)),
+            card_type=card_data.get("card_type", "word"),
+            target_language=card_data.get("target_language", deck.target_language),
+            deck_id=deck.id,
+            stability=float(card_data.get("stability", 0.0)),
+            difficulty=float(card_data.get("difficulty", 0.0)),
+            due=_parse_dt(card_data.get("due")) or now,
+            last_review=_parse_dt(card_data.get("last_review")),
+            reps=int(card_data.get("reps", 0)),
+            lapses=int(card_data.get("lapses", 0)),
+            fsrs_state=card_data.get("fsrs_state", "New"),
+            # image_url intentionally NOT imported — local path is invalid on another machine
+            image_url=None,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(card)
+        created_cards.append((card, card_data.get("audio_file")))
+
+    await session.flush()  # assigns card.id values without committing
+
+    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    for card, audio_filename in created_cards:
+        if audio_filename:
+            archive_path = f"audio/{audio_filename}"
+            if archive_path in zf.namelist():
+                audio_bytes = zf.read(archive_path)
+                dest = AUDIO_DIR / f"{card.id}.wav"
+                await asyncio.to_thread(dest.write_bytes, audio_bytes)
+                card.audio_url = f"/cards/{card.id}/audio"
+
+    await session.commit()
+    return deck.id, len(created_cards)
 
 
 # ── CardImportItem (used by API layer for /import/start) ──────────────────────

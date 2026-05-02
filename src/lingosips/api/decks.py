@@ -5,9 +5,11 @@ All error handling converts ValueError from core into RFC 7807 HTTPException.
 """
 
 import json
+import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,6 +123,30 @@ def _deck_to_response(deck, card_count: int = 0, due_card_count: int = 0) -> Dec
     )
 
 
+@router.get("/{deck_id}", response_model=DeckResponse)
+async def get_deck(
+    deck_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> DeckResponse:
+    """Fetch a single deck by ID with card and due counts.
+
+    Returns 404 if deck not found.
+    """
+    try:
+        row = await core_decks.get_deck_with_counts(deck_id, session)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "type": "/errors/deck-not-found",
+                "title": "Deck not found",
+                "status": 404,
+                "detail": f"Deck {deck_id} does not exist",
+            },
+        )
+    return _deck_row_to_response(row)
+
+
 @router.get("", response_model=list[DeckResponse])
 async def list_decks(
     target_language: str = Query(
@@ -173,6 +199,36 @@ async def create_deck(
             )
         raise
     return _deck_to_response(deck)
+
+
+@router.get("/{deck_id}/export")
+async def export_deck(
+    deck_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> StreamingResponse:
+    """Export a deck as a .lingosips ZIP archive (deck.json + audio/ folder).
+
+    Returns the ZIP as a streaming download with Content-Disposition attachment header.
+    Returns 404 if deck not found.
+    """
+    try:
+        zip_bytes, deck_name = await core_decks.export_deck_to_zip(deck_id, session)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "type": "/errors/deck-not-found",
+                "title": "Deck not found",
+                "status": 404,
+                "detail": f"Deck {deck_id} does not exist",
+            },
+        )
+    safe_name = re.sub(r"[^\w\-. ]", "_", deck_name).strip()
+    return StreamingResponse(
+        zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.lingosips"'},
+    )
 
 
 @router.patch("/{deck_id}", response_model=DeckResponse)

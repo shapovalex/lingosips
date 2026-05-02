@@ -87,8 +87,10 @@ def create_app() -> FastAPI:
     _spa_routes_exact = {"/settings", "/practice", "/import", "/progress", "/decks"}
     # Pattern routes: card and deck detail pages share path prefixes with API routes.
     # /cards/{id} → TanStack Router CardDetail (conflicts with GET /cards/{card_id}).
+    # /decks/{id} → TanStack Router DeckDetail (conflicts with GET /decks/{deck_id}).
     _spa_route_patterns = [
         re.compile(r"^/cards/\d+$"),
+        re.compile(r"^/decks/\d+$"),
     ]
 
     @application.middleware("http")
