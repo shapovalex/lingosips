@@ -200,6 +200,12 @@ def create_app() -> FastAPI:
     application.include_router(decks_router, prefix="/decks", tags=["decks"])
     application.include_router(imports_router)
 
+    # Test-only reset endpoint — never exposed in production
+    if os.environ.get("LINGOSIPS_ENV") == "test":
+        from lingosips.api.test_utils import router as test_utils_router
+
+        application.include_router(test_utils_router, prefix="/test", tags=["test"])
+
     # Mount static files for production (only when static dir has compiled frontend content)
     if STATIC_DIR.exists() and any(STATIC_DIR.iterdir()):
         application.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

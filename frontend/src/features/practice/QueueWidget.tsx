@@ -49,7 +49,7 @@ export function QueueWidget() {
   // handlePractice defined unconditionally — safe for React's render model.
   const handlePractice = useCallback(() => {
     startSession(selectedMode)
-    void navigate({ to: "/practice" })
+    void navigate({ to: "/practice", search: { mode: selectedMode } })
   }, [startSession, selectedMode, navigate])
 
   // ── Loading: initial fetch with no cached data ────────────────────────────
@@ -156,7 +156,7 @@ export function QueueWidget() {
       data-testid="queue-widget-empty"
     >
       <span className="text-zinc-300 font-medium">All caught up</span>
-      <span className="text-sm text-zinc-500">Check back later</span>
+      <span className="text-sm text-zinc-400">Check back later</span>
     </div>
   )
 }

@@ -1,10 +1,10 @@
 /**
- * routes/practice.tsx — self-assess practice session route.
+ * routes/practice.tsx — practice session route (self-assess and write mode).
  *
  * Owns the D4 layout shell (sidebar/right column collapse handled in __root.tsx).
  * Renders PracticeCard or SessionSummary based on session phase from usePracticeSession.
  *
- * AC: 3, 10
+ * AC: 3, 4, 10
  */
 import { useEffect } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
@@ -14,23 +14,45 @@ import { PracticeCard } from "@/features/practice/PracticeCard"
 import { SessionSummary } from "@/features/practice/SessionSummary"
 import { usePracticeStore } from "@/lib/stores/usePracticeStore"
 import { get } from "@/lib/client"
+import type { PracticeMode } from "@/lib/stores/usePracticeStore"
+import type { PracticeCardState } from "@/features/practice/PracticeCard"
+
+const VALID_PRACTICE_MODES: readonly PracticeMode[] = ["self_assess", "write", "speak"]
 
 export const Route = createFileRoute("/practice")({
+  validateSearch: (search: Record<string, unknown>) => {
+    const requested = search.mode as string
+    // Runtime guard: unknown mode values fall back to self_assess instead of
+    // being cast blindly through as PracticeMode
+    const mode: PracticeMode = VALID_PRACTICE_MODES.includes(requested as PracticeMode)
+      ? (requested as PracticeMode)
+      : "self_assess"
+    return { mode }
+  },
   component: PracticePage,
 })
 
 function PracticePage() {
   const navigate = useNavigate()
+  const { mode } = Route.useSearch()
   const sessionCount = usePracticeStore((s) => s.sessionCount)
   const startSession = usePracticeStore((s) => s.startSession)
-  const { currentCard, rateCard, sessionSummary, sessionPhase, rollbackCardId } = usePracticeSession()
+  const {
+    currentCard,
+    rateCard,
+    evaluateAnswer,
+    evaluationResult,
+    sessionSummary,
+    sessionPhase,
+    rollbackCardId,
+  } = usePracticeSession(mode)
 
   // AC3: Activate D4 layout (sessionState → "active") on mount so sidebar and
   // right column animate out while the practice session is in progress.
   // endSession() is called by SessionSummary on return/auto-return.
   useEffect(() => {
-    startSession("self_assess")
-  }, [startSession])
+    startSession(mode)
+  }, [startSession, mode])
 
   // AC8: Fetch next-due date when session is complete so SessionSummary can
   // display when the user's next session is scheduled.
@@ -89,6 +111,14 @@ function PracticePage() {
 
   // ── Practicing phase — show current card ──────────────────────────────────
   if (sessionPhase === "practicing" && currentCard) {
+    // Determine initial state for the card based on mode and rollback
+    let initialState: PracticeCardState = "front"
+    if (mode === "write") {
+      initialState = rollbackCardId === currentCard.id ? "write-result" : "write-active"
+    } else if (rollbackCardId === currentCard.id) {
+      initialState = "revealed"
+    }
+
     return (
       <div className="flex items-start justify-center min-h-screen pt-16 px-4">
         <div className="max-w-xl mx-auto w-full">
@@ -96,8 +126,10 @@ function PracticePage() {
             key={currentCard.id}
             card={currentCard}
             onRate={(rating) => rateCard(currentCard.id, rating)}
+            onEvaluate={(answer) => evaluateAnswer(currentCard.id, answer)}
+            evaluationResult={evaluationResult}
             sessionCount={sessionCount}
-            initialState={rollbackCardId === currentCard.id ? "revealed" : "front"}
+            initialState={initialState}
           />
         </div>
       </div>

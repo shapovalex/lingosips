@@ -1,14 +1,18 @@
-"""Tests for api/practice.py — GET /practice/queue endpoint.
+"""Tests for api/practice.py — practice queue, rating, and evaluate endpoints.
 
-TDD: these tests are written BEFORE implementation to drive api/practice.py.
-AC: 6
+TDD: these tests are written BEFORE implementation.
+AC: 1, 2, 3, 6
 """
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
+
+from lingosips.api.app import app
+from lingosips.services.registry import get_llm_provider
 
 
 @pytest.mark.anyio
@@ -542,3 +546,222 @@ class TestNextDue:
         due_aware = returned_due if returned_due.tzinfo else returned_due.replace(tzinfo=UTC)
         diff_from_fr = abs(due_aware - now_utc - timedelta(days=1))
         assert diff_from_fr < timedelta(minutes=1)
+
+
+# ── TestEvaluateAnswer ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+class TestEvaluateAnswer:
+    """Tests for POST /practice/cards/{card_id}/evaluate (AC: 1, 2, 3)."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_tables(self, test_engine) -> None:
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    @pytest.fixture
+    async def seed_card(self, session):
+        """Create a card with a known translation for evaluation tests."""
+        from lingosips.db.models import Card, Settings
+
+        settings = Settings(active_target_language="es")
+        session.add(settings)
+        card = Card(target_word="hola", translation="hello", target_language="es")
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+        return card
+
+    @pytest.fixture
+    async def mock_llm(self):
+        """Mock get_llm_provider with a provider returning a fixed explanation."""
+        from lingosips.services.llm.base import AbstractLLMProvider
+
+        mock = AsyncMock(spec=AbstractLLMProvider)
+        mock.complete = AsyncMock(return_value="You missed a letter.")
+        mock.provider_name = "MockLLM"
+        mock.model_name = "mock-model"
+
+        app.dependency_overrides[get_llm_provider] = lambda: mock
+        yield mock
+        app.dependency_overrides.pop(get_llm_provider, None)
+
+    @pytest.fixture
+    async def mock_llm_timeout(self):
+        """Mock LLM provider that raises asyncio.TimeoutError."""
+
+        from lingosips.services.llm.base import AbstractLLMProvider
+
+        mock = AsyncMock(spec=AbstractLLMProvider)
+        mock.complete = AsyncMock(side_effect=TimeoutError())
+        mock.provider_name = "MockLLM"
+        mock.model_name = "mock-model"
+
+        app.dependency_overrides[get_llm_provider] = lambda: mock
+        yield mock
+        app.dependency_overrides.pop(get_llm_provider, None)
+
+    @pytest.fixture
+    async def mock_llm_error(self):
+        """Mock LLM provider that raises a generic exception."""
+        from lingosips.services.llm.base import AbstractLLMProvider
+
+        mock = AsyncMock(spec=AbstractLLMProvider)
+        mock.complete = AsyncMock(side_effect=Exception("LLM unavailable"))
+        mock.provider_name = "MockLLM"
+        mock.model_name = "mock-model"
+
+        app.dependency_overrides[get_llm_provider] = lambda: mock
+        yield mock
+        app.dependency_overrides.pop(get_llm_provider, None)
+
+    async def test_evaluate_correct_answer_returns_success(
+        self, client: AsyncClient, seed_card, mock_llm
+    ) -> None:
+        """Exact match → is_correct=True, suggested_rating=3, no LLM call."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/evaluate",
+            json={"answer": "hello"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_correct"] is True
+        assert data["suggested_rating"] == 3
+        assert data["explanation"] is None
+        assert data["highlighted_chars"] == []
+        assert data["correct_value"] == "hello"
+        mock_llm.complete.assert_not_called()
+
+    async def test_evaluate_wrong_answer_returns_diff_and_explanation(
+        self, client: AsyncClient, seed_card, mock_llm
+    ) -> None:
+        """Wrong answer → is_correct=False, char diff populated, explanation set."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/evaluate",
+            json={"answer": "helo"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_correct"] is False
+        assert data["suggested_rating"] == 1
+        assert data["explanation"] == "You missed a letter."
+        assert len(data["highlighted_chars"]) == len("helo")
+        # Check shape of each char highlight
+        for hc in data["highlighted_chars"]:
+            assert "char" in hc
+            assert "correct" in hc
+        mock_llm.complete.assert_called_once()
+
+    async def test_evaluate_missing_answer_returns_422(
+        self, client: AsyncClient, seed_card
+    ) -> None:
+        """Missing answer field → 422 Unprocessable Entity."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/evaluate",
+            json={},
+        )
+        assert response.status_code == 422
+
+    async def test_evaluate_blank_answer_returns_422(
+        self, client: AsyncClient, seed_card, mock_llm
+    ) -> None:
+        """Whitespace-only answer → 422 (not_whitespace_only validator fires)."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/evaluate",
+            json={"answer": "   "},
+        )
+        assert response.status_code == 422
+
+    async def test_evaluate_card_not_found_returns_404(self, client: AsyncClient, mock_llm) -> None:
+        """Non-existent card_id → 404 with RFC 7807 body."""
+        response = await client.post(
+            "/practice/cards/99999/evaluate",
+            json={"answer": "hello"},
+        )
+        assert response.status_code == 404
+        data = response.json()
+        assert data["type"] == "/errors/card-not-found"
+        assert data["title"] == "Card not found"
+
+    async def test_evaluate_llm_timeout_returns_null_explanation(
+        self, client: AsyncClient, seed_card, mock_llm_timeout
+    ) -> None:
+        """LLM timeout → explanation=null, is_correct=False, session continues."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/evaluate",
+            json={"answer": "helo"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_correct"] is False
+        assert data["explanation"] is None
+        assert data["suggested_rating"] == 1
+
+    async def test_evaluate_llm_error_returns_null_explanation(
+        self, client: AsyncClient, seed_card, mock_llm_error
+    ) -> None:
+        """LLM generic error → explanation=null, is_correct=False, session continues."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/evaluate",
+            json={"answer": "helo"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_correct"] is False
+        assert data["explanation"] is None
+
+    async def test_evaluate_case_insensitive_correct(
+        self, client: AsyncClient, seed_card, mock_llm
+    ) -> None:
+        """Case-insensitive match → is_correct=True."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/evaluate",
+            json={"answer": "HELLO"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_correct"] is True
+        assert data["suggested_rating"] == 3
+
+    async def test_evaluate_card_with_no_translation_returns_422(
+        self, client: AsyncClient, session, mock_llm
+    ) -> None:
+        """Card without translation → 422 (write mode requires a known translation)."""
+        from lingosips.db.models import Card, Settings
+
+        settings = Settings(active_target_language="es")
+        session.add(settings)
+        card = Card(target_word="untranslated", translation=None, target_language="es")
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+
+        response = await client.post(
+            f"/practice/cards/{card.id}/evaluate",
+            json={"answer": "anything"},
+        )
+        assert response.status_code == 422
+        data = response.json()
+        assert data["type"] == "/errors/card-missing-translation"
+
+    async def test_evaluate_answer_is_stripped_by_validator(
+        self, client: AsyncClient, seed_card, mock_llm
+    ) -> None:
+        """Padded answer '  hello  ' is normalised to 'hello' by the validator → is_correct=True."""
+        card_id = seed_card.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/evaluate",
+            json={"answer": "  hello  "},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_correct"] is True  # stripped answer matches translation

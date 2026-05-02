@@ -27,6 +27,19 @@ export async function assertServerHealthy(page: Page): Promise<void> {
 }
 
 /**
+ * Reset the test database — deletes all cards, decks, reviews, jobs, and settings.
+ *
+ * Only works when the backend is running with LINGOSIPS_ENV=test (which mounts
+ * the /test/reset endpoint). Call in beforeEach for tests that require DB isolation.
+ */
+export async function resetTestDb(page: Page): Promise<void> {
+  const response = await page.request.delete("http://localhost:7842/test/reset")
+  if (!response.ok()) {
+    throw new Error(`resetTestDb failed (${response.status()}): ${await response.text()}`)
+  }
+}
+
+/**
  * Complete onboarding via API so tests that need the main app shell can bypass
  * the first-run wizard (Story 1.4).
  *

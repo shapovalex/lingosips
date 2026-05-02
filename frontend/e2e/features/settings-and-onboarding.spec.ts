@@ -163,7 +163,17 @@ test.describe("Settings page — Story 2.3", () => {
     const newAudioValue = !initial.auto_generate_audio
     // Toggle auto_generate_audio
     await page.getByRole("switch", { name: /Auto.generate audio/i }).click()
-    await page.getByRole("button", { name: /Save/i }).last().click()
+    // Wait for Save to be enabled (confirms form is dirty and settings are loaded)
+    const saveBtn = page.getByRole("button", { name: /Save/i }).last()
+    await expect(saveBtn).toBeEnabled({ timeout: 3_000 })
+    // Click Save and wait for the PUT response to complete before reading back
+    const [putResponse] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes("/settings") && r.request().method() === "PUT",
+      ),
+      saveBtn.click(),
+    ])
+    expect(putResponse.ok()).toBe(true)
     // Verify persisted
     const resp = await page.request.get("http://localhost:7842/settings")
     const body = await resp.json()

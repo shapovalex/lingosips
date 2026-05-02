@@ -1,7 +1,7 @@
 /**
  * Tests for usePracticeSession hook.
  * TDD: written before implementation.
- * AC: 6, 9
+ * AC: 6, 8, 9
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { renderHook, act, waitFor } from "@testing-library/react"
@@ -246,5 +246,209 @@ describe("usePracticeSession", () => {
     await waitFor(() => {
       expect(mockPost).toHaveBeenCalledWith("/practice/cards/1/rate", { rating: 3 })
     })
+  })
+
+  it("rateCard error rolls back: sets rollbackCardId and returns to same card", async () => {
+    mockPost.mockResolvedValueOnce(MOCK_CARDS)           // session/start
+    mockPost.mockRejectedValueOnce(new Error("Network")) // rate fails
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+    expect(result.current.currentCard?.id).toBe(1)
+
+    act(() => { result.current.rateCard(1, 3) })
+
+    // After rollback: still on card 1 with rollbackCardId set
+    await waitFor(() => {
+      expect(result.current.rollbackCardId).toBe(1)
+    })
+    expect(result.current.currentCard?.id).toBe(1)
+    expect(result.current.sessionPhase).toBe("practicing")
+  })
+
+  it("rateCard error on last card restores practicing phase (not complete)", async () => {
+    const oneCard = [MOCK_CARDS[0]]
+    mockPost.mockResolvedValueOnce(oneCard)              // session/start
+    mockPost.mockRejectedValueOnce(new Error("Network")) // rate fails
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => { result.current.rateCard(1, 3) })
+
+    // onMutate transitions to "complete" (last card), but onError restores "practicing"
+    await waitFor(() => {
+      expect(result.current.sessionPhase).toBe("practicing")
+    })
+    expect(result.current.rollbackCardId).toBe(1)
+  })
+})
+
+// ── evaluateAnswer mutation tests ─────────────────────────────────────────────
+
+describe("usePracticeSession — evaluateAnswer", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    usePracticeStore.setState({
+      sessionState: "idle",
+      mode: null,
+      currentCardIndex: 0,
+    })
+  })
+
+  it("evaluationResult starts as null", async () => {
+    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+    expect(result.current.evaluationResult).toBeNull()
+  })
+
+  it("evaluationResult becomes 'pending' when evaluateAnswer is called", async () => {
+    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    // evaluateAnswer call never resolves to test pending state
+    mockPost.mockReturnValueOnce(new Promise(() => {}))
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => {
+      result.current.evaluateAnswer(1, "helo")
+    })
+
+    expect(result.current.evaluationResult).toBe("pending")
+  })
+
+  it("evaluationResult becomes EvaluationResult object on successful evaluate", async () => {
+    const mockEvalResult = {
+      is_correct: false,
+      highlighted_chars: [{ char: "h", correct: true }, { char: "e", correct: false }],
+      correct_value: "hello",
+      explanation: "Missing letter.",
+      suggested_rating: 1,
+    }
+    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockResolvedValueOnce(mockEvalResult)
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => {
+      result.current.evaluateAnswer(1, "helo")
+    })
+
+    await waitFor(() => {
+      expect(result.current.evaluationResult).toEqual(mockEvalResult)
+    })
+  })
+
+  it("evaluationResult becomes null on evaluate error", async () => {
+    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockRejectedValueOnce(new Error("Network error"))
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => {
+      result.current.evaluateAnswer(1, "helo")
+    })
+
+    // After error: evaluationResult should go back to null (not "pending")
+    await waitFor(() => {
+      expect(result.current.evaluationResult).toBeNull()
+    })
+  })
+
+  it("evaluationResult resets to null when rateCard is called (card advance)", async () => {
+    const mockEvalResult = {
+      is_correct: true,
+      highlighted_chars: [],
+      correct_value: "hello",
+      explanation: null,
+      suggested_rating: 3,
+    }
+    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockResolvedValueOnce(mockEvalResult)  // evaluate
+    mockPost.mockResolvedValue(MOCK_RATED_CARD)      // rate
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => { result.current.evaluateAnswer(1, "hello") })
+    await waitFor(() => expect(result.current.evaluationResult).toEqual(mockEvalResult))
+
+    act(() => { result.current.rateCard(1, 3) })
+
+    // evaluationResult should reset on card advance
+    expect(result.current.evaluationResult).toBeNull()
+  })
+
+  it("calls POST /practice/cards/{id}/evaluate with correct payload", async () => {
+    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockResolvedValueOnce({ is_correct: true, highlighted_chars: [], correct_value: "hello", explanation: null, suggested_rating: 3 })
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => { result.current.evaluateAnswer(1, "hello") })
+
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith("/practice/cards/1/evaluate", { answer: "hello" })
+    })
+  })
+
+  it("hook accepts optional mode param without breaking existing behavior", async () => {
+    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(
+      () => usePracticeSession("write"),
+      { wrapper }
+    )
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+    expect(result.current.currentCard).toEqual(MOCK_CARDS[0])
+  })
+
+  it("evaluationResult is restored when rateCard fails (write mode rollback)", async () => {
+    const mockEvalResult = {
+      is_correct: false,
+      highlighted_chars: [{ char: "h", correct: true }],
+      correct_value: "hello",
+      explanation: "Wrong answer.",
+      suggested_rating: 1,
+    }
+    mockPost.mockResolvedValueOnce(MOCK_CARDS)         // session/start
+    mockPost.mockResolvedValueOnce(mockEvalResult)     // evaluate
+    mockPost.mockRejectedValueOnce(new Error("Network error"))  // rate fails
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    // Evaluate first to set evaluationResult
+    act(() => { result.current.evaluateAnswer(1, "helo") })
+    await waitFor(() => expect(result.current.evaluationResult).toEqual(mockEvalResult))
+
+    // Rate (will fail) — evaluationResult cleared in onMutate then restored in onError
+    act(() => { result.current.rateCard(1, 1) })
+
+    // After rollback: evaluationResult must be restored so write-result can render
+    await waitFor(() => {
+      expect(result.current.evaluationResult).toEqual(mockEvalResult)
+    })
+    // rollbackCardId must be set so PracticeCard gets initialState="write-result"
+    expect(result.current.rollbackCardId).toBe(1)
   })
 })

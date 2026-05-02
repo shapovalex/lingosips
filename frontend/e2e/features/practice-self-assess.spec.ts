@@ -154,7 +154,8 @@ test.describe("Practice Self-Assess Mode", () => {
 
       // Start a practice session
       await page.click("[aria-label='Practice']")
-      await page.waitForURL("**/practice")
+      // TanStack Router's validateSearch appends ?mode=... — use wildcard to match either form
+      await page.waitForURL(/.*\/practice.*/)
 
       // After navigating, session starts — sidebar should collapse
       // Wait for the D4 transition

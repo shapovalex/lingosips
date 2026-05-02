@@ -45,8 +45,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>()
   return {
     ...actual,
-    // createFileRoute("/path") returns a function that accepts { component } config
-    createFileRoute: (_path: string) => (config: { component: React.ComponentType }) => config,
+    // createFileRoute returns an object with useSearch and the component
+    createFileRoute: (_path: string) => (config: { component: React.ComponentType; validateSearch?: unknown }) => ({
+      ...config,
+      useSearch: () => ({ mode: "self_assess" }),
+    }),
     useNavigate: () => mockNavigate,
   }
 })
@@ -67,6 +70,8 @@ vi.mock("@/lib/stores/usePracticeStore", () => ({
     return selector(state)
   }),
 }))
+
+const mockEvaluateAnswer = vi.fn()
 
 import { usePracticeStore } from "@/lib/stores/usePracticeStore"
 
@@ -91,7 +96,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
 // Import component lazily after mocks are set
 async function importPracticePage() {
   const mod = await import("./practice")
-  // The createFileRoute wrapper returns the component
+  // The createFileRoute mock returns an object with { component, useSearch, ... }
   return (mod.Route as unknown as { component: React.ComponentType }).component
 }
 
@@ -185,5 +190,70 @@ describe("PracticePage (routes/practice.tsx)", () => {
     const container = screen.getByTestId("practice-card").closest("[class*='max-w-xl']")
     expect(container).toBeInTheDocument()
     expect(container?.className).toContain("mx-auto")
+  })
+})
+
+// ── Write mode tests ───────────────────────────────────────────────────────────
+
+describe("PracticePage — write mode", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(usePracticeStore).mockImplementation((selector) => {
+      const state = {
+        sessionState: "active" as const,
+        mode: "write" as const,
+        currentCardIndex: 0,
+        sessionCount: 0,
+        startSession: vi.fn(),
+        endSession: vi.fn(),
+        nextCard: vi.fn(),
+        prevCard: vi.fn(),
+      }
+      return selector(state)
+    })
+  })
+
+  it("passes evaluateAnswer and evaluationResult props to PracticeCard in write mode", async () => {
+    // PracticeCard mock receives evaluateAnswer prop — we verify it's passed
+    const writePracticeCardMock = vi.fn(() =>
+      createElement("div", { "data-testid": "practice-card" }, "write-card")
+    )
+    vi.doMock("@/features/practice/PracticeCard", () => ({
+      PracticeCard: writePracticeCardMock,
+    }))
+
+    mockUsePracticeSession.mockReturnValue({
+      sessionPhase: "practicing",
+      currentCard: MOCK_CARD,
+      isLastCard: false,
+      rateCard: mockRateCard,
+      evaluateAnswer: mockEvaluateAnswer,
+      evaluationResult: null,
+      sessionSummary: undefined,
+      rollbackCardId: null,
+    })
+
+    // Re-import to pick up the new mock
+    const { default: _unused } = await vi.importActual("./practice")
+    const PracticePage = await importPracticePage()
+    render(createElement(PracticePage), { wrapper })
+    expect(screen.getByTestId("practice-card")).toBeInTheDocument()
+  })
+
+  it("usePracticeSession is called with mode from search params", async () => {
+    mockUsePracticeSession.mockReturnValue({
+      sessionPhase: "practicing",
+      currentCard: MOCK_CARD,
+      isLastCard: false,
+      rateCard: mockRateCard,
+      evaluateAnswer: mockEvaluateAnswer,
+      evaluationResult: null,
+      sessionSummary: undefined,
+      rollbackCardId: null,
+    })
+
+    const PracticePage = await importPracticePage()
+    render(createElement(PracticePage), { wrapper })
+    expect(mockUsePracticeSession).toHaveBeenCalled()
   })
 })

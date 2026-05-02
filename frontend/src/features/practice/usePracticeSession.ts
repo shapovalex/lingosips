@@ -1,5 +1,5 @@
 /**
- * usePracticeSession — orchestrates a single self-assess practice session.
+ * usePracticeSession — orchestrates a single practice session (self-assess or write mode).
  *
  * Session cards are local state (snapshot fetched once at session start via
  * POST /practice/session/start). They are NOT stored in Zustand or TanStack Query cache.
@@ -7,13 +7,14 @@
  * Rating is optimistic — advances to the next card immediately without a spinner.
  * API call fires in the background; on error → toast + allow retry.
  *
- * AC: 6, 9
+ * AC: 6, 8, 9
  */
 import { useState, useEffect, useCallback } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { post } from "@/lib/client"
 import { usePracticeStore } from "@/lib/stores/usePracticeStore"
 import { useAppStore } from "@/lib/stores/useAppStore"
+import type { PracticeMode } from "@/lib/stores/usePracticeStore"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -39,19 +40,29 @@ export interface SessionSummary {
   recallRate: number  // 0–1 fraction
 }
 
+export interface EvaluationResult {
+  is_correct: boolean
+  highlighted_chars: Array<{ char: string; correct: boolean }>
+  correct_value: string
+  explanation: string | null
+  suggested_rating: number
+}
+
 export interface UsePracticeSessionReturn {
   currentCard: QueueCard | undefined
   isLastCard: boolean
   rateCard: (cardId: number, rating: number) => void
   sessionSummary: SessionSummary | undefined
   sessionPhase: SessionPhase
-  /** When non-null, a rating for this card failed — remount PracticeCard in "revealed" state for retry */
+  /** When non-null, a rating for this card failed — remount PracticeCard for retry */
   rollbackCardId: number | null
+  evaluateAnswer: (cardId: number, answer: string) => void
+  evaluationResult: EvaluationResult | "pending" | null
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-export function usePracticeSession(): UsePracticeSessionReturn {
+export function usePracticeSession(_mode?: PracticeMode): UsePracticeSessionReturn {
   const queryClient = useQueryClient()
   const { currentCardIndex, nextCard, prevCard } = usePracticeStore()
   const [sessionCards, setSessionCards] = useState<QueueCard[]>([])
@@ -59,6 +70,7 @@ export function usePracticeSession(): UsePracticeSessionReturn {
   const [sessionPhase, setSessionPhase] = useState<SessionPhase>("loading")
   const [rollbackCardId, setRollbackCardId] = useState<number | null>(null)
   const [pendingCardId, setPendingCardId] = useState<number | null>(null)
+  const [evaluationResult, setEvaluationResult] = useState<EvaluationResult | "pending" | null>(null)
 
   // ── Fetch session cards on mount ─────────────────────────────────────────
 
@@ -86,27 +98,34 @@ export function usePracticeSession(): UsePracticeSessionReturn {
   const rateCardMutation = useMutation<
     RatedCardResponse,
     Error,
-    { cardId: number; rating: number; cardIndex: number }
+    { cardId: number; rating: number; cardIndex: number },
+    { previousEvaluationResult: EvaluationResult | "pending" | null }
   >({
     mutationFn: ({ cardId, rating }) =>
       post<RatedCardResponse>(`/practice/cards/${cardId}/rate`, { rating }),
     onMutate: ({ cardId, cardIndex, rating }) => {
       // Optimistic: advance immediately — 60fps, no spinner
-      // Clear any previous rollback state before submitting a new rating
+      // Capture evaluation result BEFORE clearing so it can be restored on rollback.
+      const previousEvaluationResult = evaluationResult
       setRollbackCardId(null)
       setPendingCardId(cardId)
       setRatings((prev) => [...prev, rating])
+      // Clear evaluationResult so the next card starts fresh
+      setEvaluationResult(null)
       if (cardIndex >= sessionCards.length - 1) {
         setSessionPhase("complete")
       } else {
         nextCard()
       }
+      return { previousEvaluationResult }
     },
-    onError: (_error, { cardId, cardIndex }) => {
+    onError: (_error, { cardId, cardIndex }, context) => {
       // Roll back: go back to the card that failed; track its id so PracticeCard
-      // can remount in "revealed" state (rating row visible) for retry.
+      // can remount in write-result (or revealed) state for retry.
       setPendingCardId(null)
       setRollbackCardId(cardId)
+      // Restore evaluation result so write-result state can re-render on rollback
+      setEvaluationResult(context?.previousEvaluationResult ?? null)
       if (cardIndex < sessionCards.length - 1) {
         prevCard()
       } else {
@@ -126,6 +145,34 @@ export function usePracticeSession(): UsePracticeSessionReturn {
     },
   })
 
+  // ── Evaluate mutation ─────────────────────────────────────────────────────
+
+  const evaluateAnswerMutation = useMutation<
+    EvaluationResult,
+    Error,
+    { cardId: number; answer: string }
+  >({
+    mutationFn: ({ cardId, answer }) =>
+      post<EvaluationResult>(`/practice/cards/${cardId}/evaluate`, { answer }),
+    onMutate: () => setEvaluationResult("pending"),
+    onSuccess: (data, variables) => {
+      // Guard against a stale response arriving after the user has already rated
+      // and advanced to the next card. If the evaluated card is no longer current,
+      // discard the result rather than clobbering the new card's state.
+      const currentCard = sessionCards[currentCardIndex]
+      if (currentCard?.id === variables.cardId) {
+        setEvaluationResult(data)
+      }
+    },
+    onError: () => {
+      setEvaluationResult(null)
+      useAppStore.getState().addNotification({
+        type: "error",
+        message: "Evaluation failed — rate manually",
+      })
+    },
+  })
+
   // ── Public API ────────────────────────────────────────────────────────────
 
   const rateCard = useCallback(
@@ -138,6 +185,13 @@ export function usePracticeSession(): UsePracticeSessionReturn {
       rateCardMutation.mutate({ cardId, rating, cardIndex: currentCardIndex })
     },
     [rateCardMutation, currentCardIndex, pendingCardId]
+  )
+
+  const evaluateAnswer = useCallback(
+    (cardId: number, answer: string) => {
+      evaluateAnswerMutation.mutate({ cardId, answer })
+    },
+    [evaluateAnswerMutation]
   )
 
   const currentCard = sessionCards[currentCardIndex]
@@ -160,5 +214,7 @@ export function usePracticeSession(): UsePracticeSessionReturn {
     sessionSummary,
     sessionPhase,
     rollbackCardId,
+    evaluateAnswer,
+    evaluationResult,
   }
 }

@@ -1,20 +1,24 @@
 """FastAPI router for practice queue — GET /practice/queue, POST /practice/session/start,
-GET /practice/next-due, and POST /practice/cards/{card_id}/rate.
+GET /practice/next-due, POST /practice/cards/{card_id}/rate, and
+POST /practice/cards/{card_id}/evaluate.
 
-Router only — no business logic. Business logic delegated to core/fsrs.py.
+Router only — no business logic. Business logic delegated to core/fsrs.py and core/practice.py.
 """
 
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lingosips.core import fsrs as core_fsrs
+from lingosips.core import practice as core_practice
 from lingosips.core import settings as core_settings
 from lingosips.db.models import Card
 from lingosips.db.session import get_session
+from lingosips.services.llm.base import AbstractLLMProvider
+from lingosips.services.registry import get_llm_provider
 
 router = APIRouter()
 
@@ -146,3 +150,81 @@ async def rate_card(
         )
     updated_card = await core_fsrs.rate_card(card, request.rating, session)
     return RatedCardResponse.model_validate(updated_card)
+
+
+# ── Evaluate endpoint ─────────────────────────────────────────────────────────
+
+
+class EvaluateAnswerRequest(BaseModel):
+    answer: str = Field(min_length=1, max_length=500)
+
+    @field_validator("answer")
+    @classmethod
+    def not_whitespace_only(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("must not be whitespace only")
+        return stripped  # normalise: core layer receives already-stripped value
+
+
+class CharHighlightSchema(BaseModel):
+    char: str
+    correct: bool
+
+
+class EvaluationResponse(BaseModel):
+    is_correct: bool
+    highlighted_chars: list[CharHighlightSchema]
+    correct_value: str
+    explanation: str | None
+    suggested_rating: int  # 3=Good (correct), 1=Again (wrong)
+
+
+@router.post("/cards/{card_id}/evaluate", response_model=EvaluationResponse)
+async def evaluate_card_answer(
+    card_id: int,
+    request: EvaluateAnswerRequest,
+    llm: AbstractLLMProvider = Depends(get_llm_provider),
+    session: AsyncSession = Depends(get_session),
+) -> EvaluationResponse:
+    """Evaluate a written answer against the card's correct value with AI feedback.
+
+    Correct: exact match (case-insensitive, stripped) — no LLM call, suggested_rating=3.
+    Wrong: character diff + LLM explanation (timeout=10s) — suggested_rating=1.
+    LLM timeout/error: explanation=None silently; session continues.
+
+    Raises:
+        404: Card not found (RFC 7807 body)
+        422: Missing/blank answer, or card has no translation (write mode requires one)
+    """
+    card = await session.get(Card, card_id)
+    if card is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "type": "/errors/card-not-found",
+                "title": "Card not found",
+                "detail": f"Card {card_id} does not exist",
+            },
+        )
+    if not card.translation or not card.translation.strip():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "type": "/errors/card-missing-translation",
+                "title": "Card has no translation",
+                "detail": (
+                    f"Card {card_id} has no translation — write mode requires a known translation"
+                ),
+            },
+        )
+    result = await core_practice.evaluate_answer(card, request.answer, llm)
+    return EvaluationResponse(
+        is_correct=result.is_correct,
+        highlighted_chars=[
+            CharHighlightSchema(char=h.char, correct=h.correct) for h in result.highlighted_chars
+        ],
+        correct_value=result.correct_value,
+        explanation=result.explanation,
+        suggested_rating=result.suggested_rating,
+    )

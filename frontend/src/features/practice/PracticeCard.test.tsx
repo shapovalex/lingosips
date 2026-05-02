@@ -4,9 +4,9 @@
  * AC: 4, 5, 6, 7
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, fireEvent } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { PracticeCard } from "./PracticeCard"
-import type { QueueCard } from "./usePracticeSession"
+import type { QueueCard, EvaluationResult } from "./usePracticeSession"
 
 const MOCK_CARD: QueueCard = {
   id: 1,
@@ -158,15 +158,340 @@ describe("PracticeCard", () => {
     expect(againBtn).toHaveAttribute("aria-keyshortcuts", "1")
   })
 
-  // ── Stub states ────────────────────────────────────────────────────────────
-
-  it("renders write-active placeholder with correct data-testid", () => {
-    render(<PracticeCard card={MOCK_CARD} onRate={onRate} sessionCount={0} initialState="write-active" />)
-    expect(screen.getByTestId("practice-card-write-active")).toBeInTheDocument()
-  })
+  // ── Speak stubs (Epic 4) ───────────────────────────────────────────────────
 
   it("renders speak-recording placeholder with correct data-testid", () => {
     render(<PracticeCard card={MOCK_CARD} onRate={onRate} sessionCount={0} initialState="speak-recording" />)
     expect(screen.getByTestId("practice-card-speak-recording")).toBeInTheDocument()
+  })
+
+  it("renders speak-result placeholder with correct data-testid", () => {
+    render(<PracticeCard card={MOCK_CARD} onRate={onRate} sessionCount={0} initialState="speak-result" />)
+    expect(screen.getByTestId("practice-card-speak-result")).toBeInTheDocument()
+  })
+})
+
+// ── Write-active state ──────────────────────────────────────────────────────
+
+const MOCK_EVAL_RESULT: EvaluationResult = {
+  is_correct: false,
+  highlighted_chars: [
+    { char: "h", correct: true },
+    { char: "e", correct: true },
+    { char: "l", correct: true },
+    { char: "o", correct: false },
+  ],
+  correct_value: "hell",
+  explanation: "Wrong last letter.",
+  suggested_rating: 1,
+}
+
+describe("PracticeCard — write-active state", () => {
+  const onRate = vi.fn()
+  const onEvaluate = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("renders target word at text-4xl and textarea", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={null}
+        sessionCount={0}
+        initialState="write-active"
+      />
+    )
+    expect(screen.getByText("melancólico")).toBeInTheDocument()
+    expect(screen.getByRole("textbox")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /submit/i })).toBeInTheDocument()
+    expect(screen.getByText(/enter to submit/i)).toBeInTheDocument()
+  })
+
+  it("calls onEvaluate with answer on Enter key in textarea", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={null}
+        sessionCount={0}
+        initialState="write-active"
+      />
+    )
+    const textarea = screen.getByRole("textbox")
+    fireEvent.change(textarea, { target: { value: "melancholic" } })
+    fireEvent.keyDown(textarea, { key: "Enter" })
+    expect(onEvaluate).toHaveBeenCalledWith("melancholic")
+  })
+
+  it("calls onEvaluate on Submit button click", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={null}
+        sessionCount={0}
+        initialState="write-active"
+      />
+    )
+    const textarea = screen.getByRole("textbox")
+    fireEvent.change(textarea, { target: { value: "melancholic" } })
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }))
+    expect(onEvaluate).toHaveBeenCalledWith("melancholic")
+  })
+
+  it("shows evaluating state (disabled textarea + spinner text) when evaluationResult is 'pending'", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult="pending"
+        sessionCount={0}
+        initialState="write-active"
+      />
+    )
+    const textarea = screen.getByRole("textbox")
+    expect(textarea).toBeDisabled()
+    expect(screen.getByRole("button", { name: /evaluating/i })).toBeDisabled()
+  })
+
+  it("does NOT fire 1-4 rating keys when in write-active state", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={null}
+        sessionCount={0}
+        initialState="write-active"
+      />
+    )
+    fireEvent.keyDown(document, { key: "1" })
+    fireEvent.keyDown(document, { key: "3" })
+    expect(onRate).not.toHaveBeenCalled()
+  })
+
+  it("transitions to write-result when evaluationResult changes from null to EvaluationResult", async () => {
+    const { rerender } = render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={null}
+        sessionCount={0}
+        initialState="write-active"
+      />
+    )
+    // Still in write-active
+    expect(screen.getByRole("textbox")).toBeInTheDocument()
+
+    // evaluationResult changes to actual result
+    rerender(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={MOCK_EVAL_RESULT}
+        sessionCount={0}
+        initialState="write-active"
+      />
+    )
+
+    // Should have transitioned to write-result
+    await waitFor(() => {
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    })
+  })
+})
+
+// ── Write-result state ──────────────────────────────────────────────────────
+
+describe("PracticeCard — write-result state", () => {
+  const onRate = vi.fn()
+  const onEvaluate = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("renders correct chars normally and wrong chars with red underline", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={MOCK_EVAL_RESULT}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    // Wrong char 'o' should have red text (check via its existence)
+    const wrongChars = document.querySelectorAll(".text-red-400")
+    expect(wrongChars.length).toBeGreaterThan(0)
+    // The 'o' char is the wrong one
+    const wrongTexts = Array.from(wrongChars).map((el) => el.textContent)
+    expect(wrongTexts).toContain("o")
+  })
+
+  it("hides correct_value when is_correct is true", () => {
+    const correctResult: EvaluationResult = {
+      is_correct: true,
+      highlighted_chars: [{ char: "h", correct: true }, { char: "i", correct: true }],
+      correct_value: "hi",
+      explanation: null,
+      suggested_rating: 3,
+    }
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={correctResult}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    // correct_value "hi" should NOT be shown separately (it matches)
+    // The correct value element (emerald) should not be rendered
+    const emeraldElements = document.querySelectorAll(".text-emerald-500")
+    const correctValueShown = Array.from(emeraldElements).some(
+      (el) => el.textContent === "hi"
+    )
+    expect(correctValueShown).toBe(false)
+  })
+
+  it("shows correct_value in emerald when is_correct is false", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={MOCK_EVAL_RESULT}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    // correct_value "hell" should be visible in emerald
+    expect(screen.getByText("hell")).toBeInTheDocument()
+  })
+
+  it("shows explanation text when present", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={MOCK_EVAL_RESULT}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    expect(screen.getByText("Wrong last letter.")).toBeInTheDocument()
+  })
+
+  it("shows 'Evaluation unavailable' when explanation is null and is_correct is false", () => {
+    const noExplanation: EvaluationResult = {
+      ...MOCK_EVAL_RESULT,
+      explanation: null,
+    }
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={noExplanation}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    expect(screen.getByText(/evaluation unavailable/i)).toBeInTheDocument()
+  })
+
+  it("FSRS row pre-selects suggested_rating", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={MOCK_EVAL_RESULT}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    // suggested_rating is 1 = "Again" — it should be pre-selected (aria-pressed=true)
+    const againBtn = screen.getByRole("button", { name: /again/i })
+    expect(againBtn).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("Enter key submits the pre-selected rating", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={MOCK_EVAL_RESULT}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    fireEvent.keyDown(document, { key: "Enter" })
+    expect(onRate).toHaveBeenCalledWith(1)  // suggested_rating = 1
+  })
+
+  it("clicking a different rating button changes selection", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={MOCK_EVAL_RESULT}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    // Click "Good" (value 3) to change selection
+    fireEvent.click(screen.getByRole("button", { name: /good/i }))
+    expect(onRate).toHaveBeenCalledWith(3)
+  })
+
+  it("calls onRate with selected rating", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={MOCK_EVAL_RESULT}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    const easyBtn = screen.getByRole("button", { name: /easy/i })
+    fireEvent.click(easyBtn)
+    expect(onRate).toHaveBeenCalledWith(4)
+  })
+
+  it("does NOT fire Space rating in write-result state", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={MOCK_EVAL_RESULT}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    // The document-level keydown handler should be guarded for write-result
+    // Space should NOT call onRate (it's handled by WriteResultRatingRow's Enter)
+    const callsBefore = onRate.mock.calls.length
+    fireEvent.keyDown(document, { code: "Space", key: " " })
+    // onRate not called by Space in write-result
+    expect(onRate.mock.calls.length).toBe(callsBefore)
   })
 })

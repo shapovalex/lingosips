@@ -1,17 +1,20 @@
 /**
- * PracticeCard — the core flashcard component for self-assess practice mode.
+ * PracticeCard — the core flashcard component for self-assess and write practice modes.
  *
  * State machine: "front" | "revealed" | "write-active" | "write-result" | "speak-recording" | "speak-result"
- * All 6 states are defined. Only front/revealed are functional in Story 3.2.
- * Write/Speak states render placeholders implemented in Stories 3.3/3.4.
+ * All 6 states are defined. front/revealed are for self-assess; write-active/write-result for write mode.
+ * Speak states render placeholders implemented in Stories 3.4+.
  *
- * Keyboard: Space flips front→revealed; 1–4 keys submit rating when revealed.
- * Handlers attached to document via useEffect to work without requiring focus.
+ * Keyboard:
+ *   - Self-assess: Space flips front→revealed; 1–4 keys submit rating when revealed.
+ *   - Write-active: Enter submits answer; document-level 1–4/Space is guarded off.
+ *   - Write-result: Enter confirms pre-selected rating; 1–4 changes selection.
+ * Handlers attached to document via useEffect; write mode uses element/component-level events.
  *
  * AC: 4, 5, 6, 7
  */
-import { useState, useEffect } from "react"
-import type { QueueCard } from "./usePracticeSession"
+import { useState, useEffect, useRef } from "react"
+import type { QueueCard, EvaluationResult } from "./usePracticeSession"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -51,17 +54,97 @@ interface PracticeCardProps {
   sessionCount: number
   /** For testing stub states only — defaults to "front" */
   initialState?: PracticeCardState
+  /** Write mode: called with the user's typed answer */
+  onEvaluate?: (answer: string) => void
+  /** Write mode: result from POST /practice/cards/{id}/evaluate */
+  evaluationResult?: EvaluationResult | "pending" | null
+}
+
+// ── WriteResultRatingRow ──────────────────────────────────────────────────────
+
+function WriteResultRatingRow({
+  suggestedRating,
+  onRate,
+}: {
+  suggestedRating: number
+  onRate: (r: number) => void
+}) {
+  const [selected, setSelected] = useState(suggestedRating)
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        onRate(selected)
+        return
+      }
+      const n = Number(e.key)
+      if (n >= 1 && n <= 4) setSelected(n)
+    }
+    document.addEventListener("keydown", handler)
+    return () => document.removeEventListener("keydown", handler)
+  }, [selected, onRate])
+
+  return (
+    <div role="group" aria-label="Rate your recall" className="flex gap-2 justify-center mt-4">
+      {RATINGS.map(({ value, label }) => (
+        <button
+          key={value}
+          onClick={() => onRate(value)}
+          aria-pressed={selected === value}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors
+            focus:outline-none focus:ring-2 focus:ring-indigo-500
+            ${selected === value
+              ? "bg-indigo-500 text-white"
+              : "bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
+            }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function PracticeCard({ card, onRate, sessionCount, initialState = "front" }: PracticeCardProps) {
+export function PracticeCard({
+  card,
+  onRate,
+  sessionCount,
+  initialState = "front",
+  onEvaluate,
+  evaluationResult,
+}: PracticeCardProps) {
   const [cardState, setCardState] = useState<PracticeCardState>(initialState)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // ── Keyboard handler — document-level (no focus required) ─────────────────
+  // ── Autofocus textarea in write-active ────────────────────────────────────
+
+  useEffect(() => {
+    if (cardState === "write-active") {
+      textareaRef.current?.focus()
+    }
+  }, [cardState])
+
+  // ── Transition write-active → write-result when eval result arrives ───────
+
+  useEffect(() => {
+    if (
+      evaluationResult &&
+      evaluationResult !== "pending" &&
+      cardState === "write-active"
+    ) {
+      setCardState("write-result")
+    }
+  }, [evaluationResult, cardState])
+
+  // ── Keyboard handler — document-level (no focus required) ─────────────��───
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Guard: write mode states use their own element/component-level handlers
+      if (cardState === "write-active" || cardState === "write-result") return
+
       if (e.code === "Space" && cardState === "front") {
         e.preventDefault()  // prevent page scroll
         setCardState("revealed")
@@ -76,19 +159,122 @@ export function PracticeCard({ card, onRate, sessionCount, initialState = "front
     return () => document.removeEventListener("keydown", handler)
   }, [cardState, onRate])
 
-  // ── Stub states (Stories 3.3/3.4) ─────────────────────────────────────────
+  // ── Speak stubs (Stories 3.4+) ────────────────────────────────────────────
 
-  if (cardState === "write-active") {
-    return <div data-testid="practice-card-write-active">Story 3.3 placeholder</div>
-  }
-  if (cardState === "write-result") {
-    return <div data-testid="practice-card-write-result">Story 3.3 placeholder</div>
-  }
   if (cardState === "speak-recording") {
     return <div data-testid="practice-card-speak-recording">Story 3.4 placeholder</div>
   }
   if (cardState === "speak-result") {
     return <div data-testid="practice-card-speak-result">Story 3.4 placeholder</div>
+  }
+
+  // ── Write-active state ────────────────────────────────────────────────────
+
+  if (cardState === "write-active") {
+    const isEvaluating = evaluationResult === "pending"
+
+    return (
+      <div className="flex flex-col items-center gap-6 p-8">
+        {/* Target word — same prominence as self-assess front */}
+        <span className="text-4xl font-semibold text-zinc-50">{card.target_word}</span>
+
+        {/* Answer input */}
+        <div className="w-full max-w-sm flex flex-col gap-2">
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            disabled={isEvaluating}
+            placeholder="Type the translation…"
+            data-testid="write-active-input"
+            className="w-full resize-none rounded-lg bg-zinc-800 px-4 py-3 text-zinc-50
+                       placeholder:text-zinc-500 focus:outline-none focus:ring-2
+                       focus:ring-indigo-500 disabled:opacity-50"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                if (!isEvaluating && e.currentTarget.value.trim()) {
+                  onEvaluate?.(e.currentTarget.value)
+                }
+              }
+            }}
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-zinc-500">Enter to submit</span>
+            <button
+              disabled={isEvaluating}
+              onClick={() => {
+                const val = textareaRef.current?.value.trim()
+                if (val) onEvaluate?.(val)
+              }}
+              className="px-4 py-2 rounded-lg bg-indigo-500 text-sm text-white
+                         hover:bg-indigo-400 disabled:opacity-50 transition-colors"
+            >
+              {isEvaluating ? "Evaluating…" : "Submit"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Write-result state ────────────────────────────────────────────────────
+
+  if (
+    cardState === "write-result" &&
+    evaluationResult &&
+    evaluationResult !== "pending"
+  ) {
+    const result = evaluationResult
+
+    return (
+      <div className="flex flex-col items-center gap-4 p-8">
+        {/* Target word */}
+        <span className="text-4xl font-semibold text-zinc-50">{card.target_word}</span>
+
+        {/* User's answer with char-level highlighting */}
+        <div className="flex flex-wrap gap-0 text-xl font-mono">
+          {result.highlighted_chars.map((hc, i) => (
+            <span
+              key={i}
+              className={
+                hc.correct
+                  ? "text-zinc-200"
+                  : "text-red-400 underline decoration-red-400"
+              }
+            >
+              {hc.char}
+            </span>
+          ))}
+        </div>
+
+        {/* Correct value — shown only when wrong */}
+        {!result.is_correct && (
+          <span className="text-lg text-emerald-500">{result.correct_value}</span>
+        )}
+
+        {/* Explanation or fallback */}
+        {result.explanation ? (
+          <span className="text-sm text-zinc-400 text-center max-w-sm">
+            {result.explanation}
+          </span>
+        ) : !result.is_correct ? (
+          <span className="text-sm text-zinc-400 italic">
+            Evaluation unavailable — rate manually
+          </span>
+        ) : null}
+
+        {/* Correct confirmation */}
+        {result.is_correct && (
+          <span className="text-sm text-emerald-500">✓ Correct</span>
+        )}
+
+        {/* FSRS rating row with pre-selected suggested_rating */}
+        <WriteResultRatingRow
+          suggestedRating={result.suggested_rating}
+          onRate={onRate}
+        />
+      </div>
+    )
   }
 
   // ── Front state ───────────────────────────────────────────────────────────
