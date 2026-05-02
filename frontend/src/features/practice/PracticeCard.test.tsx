@@ -19,6 +19,9 @@ const MOCK_CARD: QueueCard = {
   difficulty: 4.0,
   reps: 5,
   lapses: 0,
+  card_type: "word",
+  forms: null,
+  example_sentences: null,
 }
 
 const MOCK_CARD_WITH_FORMS: QueueCard & { grammatical_forms?: string; example_sentence?: string } = {
@@ -493,5 +496,158 @@ describe("PracticeCard — write-result state", () => {
     fireEvent.keyDown(document, { code: "Space", key: " " })
     // onRate not called by Space in write-result
     expect(onRate.mock.calls.length).toBe(callsBefore)
+  })
+})
+
+// ── Story 3.4: Sentence/collocation card display tests ─────────────────────────
+
+const SENTENCE_CARD: QueueCard & { grammatical_forms?: string; example_sentence?: string } = {
+  ...MOCK_CARD,
+  id: 10,
+  target_word: "no te hagas el tonto",
+  translation: "don't play dumb",
+  card_type: "sentence",
+  forms: JSON.stringify({ register_context: "informal, River Plate Spanish" }),
+  grammatical_forms: "Register: informal, River Plate Spanish",
+  example_sentence: "No te hagas el tonto, te vi.",
+}
+
+const COLLOCATION_CARD: QueueCard = {
+  ...MOCK_CARD,
+  id: 11,
+  target_word: "morder el polvo",
+  translation: "to bite the dust",
+  card_type: "collocation",
+  forms: JSON.stringify({ register_context: "informal" }),
+}
+
+describe("card_type-aware font sizing", () => {
+  const onRate = vi.fn()
+  beforeEach(() => vi.clearAllMocks())
+
+  it("renders target_word at text-4xl for word cards (default)", () => {
+    render(<PracticeCard card={MOCK_CARD} onRate={onRate} sessionCount={0} />)
+    const span = screen.getByText("melancólico")
+    expect(span.className).toContain("text-4xl")
+  })
+
+  it("renders target_word at text-2xl for sentence cards", () => {
+    render(<PracticeCard card={SENTENCE_CARD} onRate={onRate} sessionCount={0} />)
+    const span = screen.getByText("no te hagas el tonto")
+    expect(span.className).toContain("text-2xl")
+    expect(span.className).not.toContain("text-4xl")
+  })
+
+  it("renders target_word at text-2xl for collocation cards", () => {
+    render(<PracticeCard card={COLLOCATION_CARD} onRate={onRate} sessionCount={0} />)
+    const span = screen.getByText("morder el polvo")
+    expect(span.className).toContain("text-2xl")
+  })
+
+  it("defaults to text-4xl when card_type is word", () => {
+    const wordCard = { ...MOCK_CARD, card_type: "word" as const }
+    render(<PracticeCard card={wordCard} onRate={onRate} sessionCount={0} />)
+    const span = screen.getByText("melancólico")
+    expect(span.className).toContain("text-4xl")
+  })
+})
+
+describe("write-result — sentence card (empty highlighted_chars)", () => {
+  const onRate = vi.fn()
+  const onEvaluate = vi.fn()
+  beforeEach(() => vi.clearAllMocks())
+
+  const SENTENCE_WRONG_RESULT: EvaluationResult = {
+    is_correct: false,
+    highlighted_chars: [],
+    correct_value: "don't play dumb",
+    explanation: "That's not the right meaning.",
+    suggested_rating: 1,
+  }
+
+  it("does NOT show char-highlight div when highlighted_chars is empty", () => {
+    render(
+      <PracticeCard
+        card={SENTENCE_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={SENTENCE_WRONG_RESULT}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    // No char-highlight wrapper div present
+    const charHighlightDiv = document.querySelector(".flex.flex-wrap.gap-0.text-xl.font-mono")
+    expect(charHighlightDiv).not.toBeInTheDocument()
+  })
+
+  it("still shows correct_value in emerald when is_correct=false", () => {
+    render(
+      <PracticeCard
+        card={SENTENCE_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={SENTENCE_WRONG_RESULT}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    const correctSpan = screen.getByText("don't play dumb")
+    expect(correctSpan.className).toContain("emerald")
+  })
+
+  it("still shows explanation when present", () => {
+    render(
+      <PracticeCard
+        card={SENTENCE_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={SENTENCE_WRONG_RESULT}
+        sessionCount={0}
+        initialState="write-result"
+      />
+    )
+    expect(screen.getByText("That's not the right meaning.")).toBeInTheDocument()
+  })
+})
+
+describe("write-active — userAnswer capture", () => {
+  const onRate = vi.fn()
+  const onEvaluate = vi.fn()
+  beforeEach(() => vi.clearAllMocks())
+
+  it("calls onEvaluate on Enter key submit", () => {
+    render(
+      <PracticeCard
+        card={SENTENCE_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={null}
+        sessionCount={0}
+        initialState="write-active"
+      />
+    )
+    const textarea = screen.getByTestId("write-active-input")
+    fireEvent.change(textarea, { target: { value: "my answer" } })
+    fireEvent.keyDown(textarea, { key: "Enter" })
+    expect(onEvaluate).toHaveBeenCalledWith("my answer")
+  })
+
+  it("calls onEvaluate on Submit button click", () => {
+    render(
+      <PracticeCard
+        card={SENTENCE_CARD}
+        onRate={onRate}
+        onEvaluate={onEvaluate}
+        evaluationResult={null}
+        sessionCount={0}
+        initialState="write-active"
+      />
+    )
+    const textarea = screen.getByTestId("write-active-input")
+    fireEvent.change(textarea, { target: { value: "my button answer" } })
+    const submitBtn = screen.getByRole("button", { name: /submit/i })
+    fireEvent.click(submitBtn)
+    expect(onEvaluate).toHaveBeenCalledWith("my button answer")
   })
 })

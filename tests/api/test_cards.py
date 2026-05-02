@@ -20,12 +20,14 @@ from lingosips.services.registry import get_llm_provider, get_speech_provider
 
 MOCK_LLM_JSON_RESPONSE = json.dumps(
     {
+        "card_type": "word",
         "translation": "melancholic",
         "forms": {
             "gender": "masculine",
             "article": "el",
             "plural": "melancólicos",
             "conjugations": {},
+            "register_context": None,
         },
         "example_sentences": [
             "Tenía un aire melancólico.",
@@ -142,11 +144,12 @@ class TestPostCardsStream:
         assert response.status_code == 200
         events = parse_sse_events(response.content)
         field_updates = [e for e in events if e["event"] == "field_update"]
-        assert len(field_updates) == 4  # translation, forms, example_sentences, audio
-        assert field_updates[0]["data"]["field"] == "translation"
-        assert field_updates[1]["data"]["field"] == "forms"
-        assert field_updates[2]["data"]["field"] == "example_sentences"
-        assert field_updates[3]["data"]["field"] == "audio"
+        assert len(field_updates) == 5  # card_type, translation, forms, example_sentences, audio
+        assert field_updates[0]["data"]["field"] == "card_type"
+        assert field_updates[1]["data"]["field"] == "translation"
+        assert field_updates[2]["data"]["field"] == "forms"
+        assert field_updates[3]["data"]["field"] == "example_sentences"
+        assert field_updates[4]["data"]["field"] == "audio"
 
     async def test_success_emits_complete_event_with_card_id(
         self, client: AsyncClient, mock_llm_provider

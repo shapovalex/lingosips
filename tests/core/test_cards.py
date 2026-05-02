@@ -64,7 +64,13 @@ class TestParseCardResponse:
         raw = json.dumps({"translation": "hello"})  # missing forms and example_sentences
         result = _parse_llm_response(raw)
         assert result["translation"] == "hello"
-        expected_forms = {"gender": None, "article": None, "plural": None, "conjugations": {}}
+        expected_forms = {
+            "gender": None,
+            "article": None,
+            "plural": None,
+            "conjugations": {},
+            "register_context": None,
+        }
         assert result["forms"] == expected_forms
         assert result["example_sentences"] == []
 
@@ -102,6 +108,87 @@ class TestParseCardResponse:
         raw = f"{payload} (see grammar note {{end}})"
         result = _parse_llm_response(raw)
         assert result["translation"] == "happy"
+
+    def test_sentence_card_type_extracted(self) -> None:
+        """LLM returns card_type=sentence → extracted and returned."""
+        from lingosips.core.cards import _parse_llm_response
+
+        raw = json.dumps(
+            {
+                "card_type": "sentence",
+                "translation": "don't play dumb",
+                "forms": {
+                    "gender": None,
+                    "article": None,
+                    "plural": None,
+                    "conjugations": {},
+                    "register_context": "informal, River Plate Spanish",
+                },
+                "example_sentences": ["No te hagas el tonto, te vi.", "Siempre se hace el tonto."],
+            }
+        )
+        result = _parse_llm_response(raw)
+        assert result["card_type"] == "sentence"
+        assert result["forms"]["register_context"] == "informal, River Plate Spanish"
+
+    def test_collocation_card_type_extracted(self) -> None:
+        """LLM returns card_type=collocation → extracted."""
+        from lingosips.core.cards import _parse_llm_response
+
+        raw = json.dumps(
+            {
+                "card_type": "collocation",
+                "translation": "to bite the dust",
+                "forms": {
+                    "gender": None,
+                    "article": None,
+                    "plural": None,
+                    "conjugations": {},
+                    "register_context": "informal",
+                },
+                "example_sentences": [
+                    "El proyecto mordió el polvo.",
+                    "Muchos proyectos muerden el polvo.",
+                ],
+            }
+        )
+        result = _parse_llm_response(raw)
+        assert result["card_type"] == "collocation"
+
+    def test_missing_card_type_defaults_to_word(self) -> None:
+        """Old-format LLM response without card_type → defaults to 'word'."""
+        from lingosips.core.cards import _parse_llm_response
+
+        raw = json.dumps(
+            {
+                "translation": "sad",
+                "forms": {"gender": None, "article": None, "plural": None, "conjugations": {}},
+                "example_sentences": ["A.", "B."],
+            }
+        )
+        result = _parse_llm_response(raw)
+        assert result["card_type"] == "word"
+
+    def test_register_context_key_always_present(self) -> None:
+        """forms always has register_context key (None for word cards)."""
+        from lingosips.core.cards import _parse_llm_response
+
+        raw = json.dumps(
+            {
+                "card_type": "word",
+                "translation": "happy",
+                "forms": {
+                    "gender": "masculine",
+                    "article": "el",
+                    "plural": "felices",
+                    "conjugations": {},
+                },
+                "example_sentences": ["A.", "B."],
+            }
+        )
+        result = _parse_llm_response(raw)
+        assert "register_context" in result["forms"]
+        assert result["forms"]["register_context"] is None
 
 
 @pytest.mark.anyio
@@ -173,16 +260,47 @@ class TestCreateCardStream:
         mock.complete = AsyncMock(
             return_value=json.dumps(
                 {
+                    "card_type": "word",
                     "translation": "melancholic",
                     "forms": {
                         "gender": "masculine",
                         "article": "el",
                         "plural": "melancólicos",
                         "conjugations": {},
+                        "register_context": None,
                     },
                     "example_sentences": [
                         "Tenía un aire melancólico.",
                         "Era un día melancólico.",
+                    ],
+                }
+            )
+        )
+        mock.provider_name = "MockLLM"
+        mock.model_name = "mock-model"
+        return mock
+
+    @pytest.fixture
+    def mock_llm_sentence(self) -> AsyncMock:
+        """Mock LLM provider returning a sentence card JSON response."""
+        from lingosips.services.llm.base import AbstractLLMProvider
+
+        mock = AsyncMock(spec=AbstractLLMProvider)
+        mock.complete = AsyncMock(
+            return_value=json.dumps(
+                {
+                    "card_type": "sentence",
+                    "translation": "don't play dumb",
+                    "forms": {
+                        "gender": None,
+                        "article": None,
+                        "plural": None,
+                        "conjugations": {},
+                        "register_context": "informal, River Plate Spanish",
+                    },
+                    "example_sentences": [
+                        "No te hagas el tonto, te vi.",
+                        "Siempre se hace el tonto.",
                     ],
                 }
             )
@@ -240,11 +358,12 @@ class TestCreateCardStream:
         events = await self._collect_events(gen)
 
         field_updates = [e for e in events if e["event"] == "field_update"]
-        assert len(field_updates) == 4  # translation, forms, example_sentences, audio
-        assert field_updates[0]["data"]["field"] == "translation"
-        assert field_updates[1]["data"]["field"] == "forms"
-        assert field_updates[2]["data"]["field"] == "example_sentences"
-        assert field_updates[3]["data"]["field"] == "audio"
+        assert len(field_updates) == 5  # card_type, translation, forms, example_sentences, audio
+        assert field_updates[0]["data"]["field"] == "card_type"
+        assert field_updates[1]["data"]["field"] == "translation"
+        assert field_updates[2]["data"]["field"] == "forms"
+        assert field_updates[3]["data"]["field"] == "example_sentences"
+        assert field_updates[4]["data"]["field"] == "audio"
 
     async def test_complete_event_emitted_with_card_id(
         self, mock_llm, mock_speech, session
@@ -536,6 +655,35 @@ class TestCreateCardStream:
         result = await session.execute(select(Card).where(Card.id == card_id))
         card = result.scalar_one()
         assert card.audio_url is None
+
+
+    async def test_sentence_card_type_persisted(
+        self, mock_llm_sentence, mock_speech, session
+    ) -> None:
+        """Sentence card: card_type='sentence' saved to DB and emitted as field_update."""
+        from sqlalchemy import select
+
+        from lingosips.core.cards import CardCreateRequest, create_card_stream
+        from lingosips.db.models import Card
+
+        request = CardCreateRequest(target_word="no te hagas el tonto")
+        events = await self._collect_events(
+            create_card_stream(request, mock_llm_sentence, session, "es", speech=mock_speech)
+        )
+
+        # Verify card_type field_update emitted
+        field_updates = [e for e in events if e["event"] == "field_update"]
+        card_type_event = next(
+            (f for f in field_updates if f["data"]["field"] == "card_type"), None
+        )
+        assert card_type_event is not None
+        assert card_type_event["data"]["value"] == "sentence"
+
+        # Verify DB card has card_type="sentence"
+        card_id = next(e["data"]["card_id"] for e in events if e["event"] == "complete")
+        result = await session.execute(select(Card).where(Card.id == card_id))
+        card = result.scalar_one()
+        assert card.card_type == "sentence"
 
 
 @pytest.mark.anyio

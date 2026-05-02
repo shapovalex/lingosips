@@ -117,6 +117,10 @@ export function PracticeCard({
 }: PracticeCardProps) {
   const [cardState, setCardState] = useState<PracticeCardState>(initialState)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [userAnswer, setUserAnswer] = useState<string | null>(null)
+
+  // Card-type-aware font sizing: sentences/collocations use text-2xl; words use text-4xl
+  const targetWordSize = card.card_type === "word" ? "text-4xl" : "text-2xl"
 
   // ── Autofocus textarea in write-active ────────────────────────────────────
 
@@ -159,13 +163,13 @@ export function PracticeCard({
     return () => document.removeEventListener("keydown", handler)
   }, [cardState, onRate])
 
-  // ── Speak stubs (Stories 3.4+) ────────────────────────────────────────────
+  // ── Speak stubs (Stories 3.5+) ────────────────────────────────────────────
 
   if (cardState === "speak-recording") {
-    return <div data-testid="practice-card-speak-recording">Story 3.4 placeholder</div>
+    return <div data-testid="practice-card-speak-recording">Story 3.5 placeholder</div>
   }
   if (cardState === "speak-result") {
-    return <div data-testid="practice-card-speak-result">Story 3.4 placeholder</div>
+    return <div data-testid="practice-card-speak-result">Story 3.5 placeholder</div>
   }
 
   // ── Write-active state ────────────────────────────────────────────────────
@@ -176,7 +180,7 @@ export function PracticeCard({
     return (
       <div className="flex flex-col items-center gap-6 p-8">
         {/* Target word — same prominence as self-assess front */}
-        <span className="text-4xl font-semibold text-zinc-50">{card.target_word}</span>
+        <span className={`${targetWordSize} font-semibold text-zinc-50`}>{card.target_word}</span>
 
         {/* Answer input */}
         <div className="w-full max-w-sm flex flex-col gap-2">
@@ -192,8 +196,10 @@ export function PracticeCard({
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault()
-                if (!isEvaluating && e.currentTarget.value.trim()) {
-                  onEvaluate?.(e.currentTarget.value)
+                const val = e.currentTarget.value.trim()
+                if (!isEvaluating && val) {
+                  setUserAnswer(val)
+                  onEvaluate?.(val)
                 }
               }
             }}
@@ -204,7 +210,10 @@ export function PracticeCard({
               disabled={isEvaluating}
               onClick={() => {
                 const val = textareaRef.current?.value.trim()
-                if (val) onEvaluate?.(val)
+                if (val) {
+                  setUserAnswer(val)
+                  onEvaluate?.(val)
+                }
               }}
               className="px-4 py-2 rounded-lg bg-indigo-500 text-sm text-white
                          hover:bg-indigo-400 disabled:opacity-50 transition-colors"
@@ -229,23 +238,27 @@ export function PracticeCard({
     return (
       <div className="flex flex-col items-center gap-4 p-8">
         {/* Target word */}
-        <span className="text-4xl font-semibold text-zinc-50">{card.target_word}</span>
+        <span className={`${targetWordSize} font-semibold text-zinc-50`}>{card.target_word}</span>
 
-        {/* User's answer with char-level highlighting */}
-        <div className="flex flex-wrap gap-0 text-xl font-mono">
-          {result.highlighted_chars.map((hc, i) => (
-            <span
-              key={i}
-              className={
-                hc.correct
-                  ? "text-zinc-200"
-                  : "text-red-400 underline decoration-red-400"
-              }
-            >
-              {hc.char}
-            </span>
-          ))}
-        </div>
+        {/* User's answer — char-level highlighting for word cards; strikethrough for sentence/collocation */}
+        {result.highlighted_chars.length > 0 ? (
+          <div className="flex flex-wrap gap-0 text-xl font-mono">
+            {result.highlighted_chars.map((hc, i) => (
+              <span
+                key={i}
+                className={
+                  hc.correct
+                    ? "text-zinc-200"
+                    : "text-red-400 underline decoration-red-400"
+                }
+              >
+                {hc.char}
+              </span>
+            ))}
+          </div>
+        ) : !result.is_correct && userAnswer ? (
+          <span className="text-xl font-mono text-zinc-400 line-through">{userAnswer}</span>
+        ) : null}
 
         {/* Correct value — shown only when wrong */}
         {!result.is_correct && (
@@ -287,7 +300,7 @@ export function PracticeCard({
         aria-label="Flip card"
         onClick={() => setCardState("revealed")}
       >
-        <span className="text-4xl font-semibold text-zinc-50">{card.target_word}</span>
+        <span className={`${targetWordSize} font-semibold text-zinc-50`}>{card.target_word}</span>
         <span className="text-sm text-zinc-500 mt-2">Space to reveal</span>
       </button>
     )
@@ -298,7 +311,7 @@ export function PracticeCard({
   return (
     <div className="flex flex-col items-center gap-4 p-8">
       {/* Target word stays visible */}
-      <span className="text-4xl font-semibold text-zinc-50">{card.target_word}</span>
+      <span className={`${targetWordSize} font-semibold text-zinc-50`}>{card.target_word}</span>
 
       {/* Translation */}
       {card.translation && (

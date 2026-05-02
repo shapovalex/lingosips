@@ -16,8 +16,41 @@ import { usePracticeStore } from "@/lib/stores/usePracticeStore"
 import { get } from "@/lib/client"
 import type { PracticeMode } from "@/lib/stores/usePracticeStore"
 import type { PracticeCardState } from "@/features/practice/PracticeCard"
+import type { QueueCard } from "@/features/practice/usePracticeSession"
 
 const VALID_PRACTICE_MODES: readonly PracticeMode[] = ["self_assess", "write", "speak"]
+
+// ── Module-level display helpers ──────────────────────────────────────────────
+
+/** Parse `forms` JSON and produce a display string for the grammatical forms / register context. */
+export function deriveGrammaticalForms(card: QueueCard): string | undefined {
+  if (!card.forms) return undefined
+  try {
+    const forms = JSON.parse(card.forms) as Record<string, unknown>
+    if (card.card_type === "sentence" || card.card_type === "collocation") {
+      const registerContext = forms.register_context as string | null | undefined
+      return registerContext ? `Register: ${registerContext}` : undefined
+    }
+    // Word cards: build "masculine · pl. melancólicos" style string
+    const parts: string[] = []
+    if (forms.gender && typeof forms.gender === "string") parts.push(forms.gender)
+    if (forms.plural && typeof forms.plural === "string") parts.push(`pl. ${forms.plural}`)
+    return parts.length > 0 ? parts.join(" · ") : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Return the first example sentence from the `example_sentences` JSON array. */
+export function deriveFirstExampleSentence(card: QueueCard): string | undefined {
+  if (!card.example_sentences) return undefined
+  try {
+    const sentences = JSON.parse(card.example_sentences) as string[]
+    return sentences[0] ?? undefined
+  } catch {
+    return undefined
+  }
+}
 
 export const Route = createFileRoute("/practice")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -124,7 +157,11 @@ function PracticePage() {
         <div className="max-w-xl mx-auto w-full">
           <PracticeCard
             key={currentCard.id}
-            card={currentCard}
+            card={{
+              ...currentCard,
+              grammatical_forms: deriveGrammaticalForms(currentCard),
+              example_sentence: deriveFirstExampleSentence(currentCard),
+            }}
             onRate={(rating) => rateCard(currentCard.id, rating)}
             onEvaluate={(answer) => evaluateAnswer(currentCard.id, answer)}
             evaluationResult={evaluationResult}

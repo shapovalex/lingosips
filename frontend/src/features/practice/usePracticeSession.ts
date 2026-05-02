@@ -29,6 +29,9 @@ export type QueueCard = {
   difficulty: number
   reps: number
   lapses: number
+  card_type: "word" | "sentence" | "collocation"
+  forms: string | null       // JSON string — contains register_context for sentence/collocation
+  example_sentences: string | null  // JSON string
 }
 
 type RatedCardResponse = QueueCard & { last_review: string | null }

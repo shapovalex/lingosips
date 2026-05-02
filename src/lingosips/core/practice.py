@@ -6,6 +6,7 @@ API layer (api/practice.py) delegates here.
 
 import asyncio
 import difflib
+import json
 from dataclasses import dataclass
 
 import structlog
@@ -68,6 +69,92 @@ def _char_diff(user_answer: str, correct_value: str) -> list[CharHighlight]:
     return result
 
 
+SENTENCE_EVAL_SYSTEM_PROMPT = (
+    "You are a language tutor evaluating sentence translations. "
+    "Given a sentence card (target language), the student's English translation, "
+    "and the reference translation, decide if the student's answer captures the meaning. "
+    "Accept: same meaning in different words, minor grammatical variations, "
+    "stylistic paraphrases. "
+    "Reject: wrong meaning, missing key information, completely different tone. "
+    "Return ONLY a JSON object: "
+    '{"is_correct": true|false, "explanation": "one sentence or null"}. '
+    "No markdown, no extra text."
+)
+
+
+async def _evaluate_sentence_answer(
+    card: Card,
+    user_answer: str,
+    llm: AbstractLLMProvider,
+) -> EvaluationResult:
+    """LLM-based semantic evaluation for sentence/collocation cards.
+
+    Does NOT produce char-level diff — highlighted_chars is always [].
+    The LLM decides if the user's answer captures the meaning (paraphrase accepted).
+    """
+    correct_value = (card.translation or "").strip()
+    normalized_user = user_answer.strip()
+
+    # Exact match short-circuit (case-insensitive) — no LLM call
+    if normalized_user.lower() == correct_value.lower():
+        return EvaluationResult(
+            is_correct=True,
+            highlighted_chars=[],
+            correct_value=correct_value,
+            explanation=None,
+            suggested_rating=3,
+        )
+
+    explanation: str | None = None
+    is_correct = False
+
+    try:
+        messages: list[LLMMessage] = [
+            {"role": "system", "content": SENTENCE_EVAL_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"Sentence (target language): {card.target_word}\n"
+                    f"Reference translation: {correct_value}\n"
+                    f"Student answered: {normalized_user}"
+                ),
+            },
+        ]
+        raw = await asyncio.wait_for(
+            llm.complete(messages, max_tokens=128),
+            timeout=LLM_TIMEOUT_SECONDS,
+        )
+        # Parse LLM JSON response
+        raw_stripped = raw.strip()
+        if raw_stripped.startswith("```"):
+            lines = raw_stripped.splitlines()
+            end = next(
+                (i for i, line in enumerate(lines[1:], 1) if line.strip() == "```"),
+                len(lines),
+            )
+            raw_stripped = "\n".join(lines[1:end]).strip()
+        start = raw_stripped.find("{")
+        if start != -1:
+            decoded = json.JSONDecoder().raw_decode(raw_stripped, start)[0]
+            is_correct = bool(decoded.get("is_correct", False))
+            expl = decoded.get("explanation")
+            expl_str = str(expl).strip() if expl else ""
+            is_null_sentinel = expl_str.lower() in ("null", "none")
+            explanation = expl_str if expl_str and not is_null_sentinel else None
+    except Exception as exc:
+        logger.warning("llm_sentence_eval_failed", card_id=card.id, error=str(exc))
+        is_correct = False
+        explanation = None
+
+    return EvaluationResult(
+        is_correct=is_correct,
+        highlighted_chars=[],  # never char-diff for sentence/collocation
+        correct_value=correct_value,
+        explanation=explanation,
+        suggested_rating=3 if is_correct else 1,
+    )
+
+
 async def evaluate_answer(
     card: Card,
     user_answer: str,
@@ -75,10 +162,13 @@ async def evaluate_answer(
 ) -> EvaluationResult:
     """Compare user's written answer to the card's translation and get AI feedback.
 
-    Correct value: card.translation (user sees target_word, types translation).
-    Returns empty highlighted_chars list on exact match.
-    LLM is only called on wrong/near-miss answers.
+    For word cards: exact match check → char diff + LLM explanation on wrong answers.
+    For sentence/collocation cards: LLM semantic evaluation (paraphrase accepted).
     """
+    if card.card_type in ("sentence", "collocation"):
+        return await _evaluate_sentence_answer(card, user_answer, llm)
+
+    # Word card — existing exact-match + char-diff logic
     correct_value = (card.translation or "").strip()
     normalized_user = user_answer.strip()
     is_correct = normalized_user.lower() == correct_value.lower()

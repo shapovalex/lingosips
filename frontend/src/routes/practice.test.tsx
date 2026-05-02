@@ -1,5 +1,5 @@
 /**
- * Tests for routes/practice.tsx.
+ * Tests for routes/practice.tsx — includes helper function unit tests (Story 3.4, AC: 3).
  * TDD: written before implementation.
  * AC: 3, 10
  */
@@ -7,6 +7,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import { createElement } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { deriveGrammaticalForms, deriveFirstExampleSentence } from "./practice"
+import type { QueueCard } from "@/features/practice/usePracticeSession"
 
 // Mock API client — prevents real HTTP calls from useQuery in PracticePage
 vi.mock("@/lib/client", () => ({
@@ -75,7 +77,7 @@ const mockEvaluateAnswer = vi.fn()
 
 import { usePracticeStore } from "@/lib/stores/usePracticeStore"
 
-const MOCK_CARD = {
+const MOCK_CARD: QueueCard = {
   id: 1,
   target_word: "hola",
   translation: "hello",
@@ -86,7 +88,104 @@ const MOCK_CARD = {
   difficulty: 5.0,
   reps: 0,
   lapses: 0,
+  card_type: "word",
+  forms: null,
+  example_sentences: null,
 }
+
+// ── Helper function tests ──────────────────────────────────────────────────────
+
+function makeCard(overrides: Partial<QueueCard> = {}): QueueCard {
+  return { ...MOCK_CARD, ...overrides }
+}
+
+describe("deriveGrammaticalForms", () => {
+  it("returns undefined when forms is null", () => {
+    expect(deriveGrammaticalForms(makeCard({ forms: null }))).toBeUndefined()
+  })
+
+  it("returns 'Register: informal, River Plate Spanish' for sentence card with register_context", () => {
+    const card = makeCard({
+      card_type: "sentence",
+      forms: JSON.stringify({
+        gender: null, article: null, plural: null, conjugations: {},
+        register_context: "informal, River Plate Spanish",
+      }),
+    })
+    expect(deriveGrammaticalForms(card)).toBe("Register: informal, River Plate Spanish")
+  })
+
+  it("returns 'Register: informal' for collocation card with register_context", () => {
+    const card = makeCard({
+      card_type: "collocation",
+      forms: JSON.stringify({
+        gender: null, article: null, plural: null, conjugations: {},
+        register_context: "informal",
+      }),
+    })
+    expect(deriveGrammaticalForms(card)).toBe("Register: informal")
+  })
+
+  it("returns 'masculine · pl. melancólicos' for word card with gender+plural", () => {
+    const card = makeCard({
+      card_type: "word",
+      forms: JSON.stringify({
+        gender: "masculine", article: "el", plural: "melancólicos",
+        conjugations: {}, register_context: null,
+      }),
+    })
+    expect(deriveGrammaticalForms(card)).toBe("masculine · pl. melancólicos")
+  })
+
+  it("returns undefined when register_context is null for sentence card", () => {
+    const card = makeCard({
+      card_type: "sentence",
+      forms: JSON.stringify({
+        gender: null, article: null, plural: null, conjugations: {},
+        register_context: null,
+      }),
+    })
+    expect(deriveGrammaticalForms(card)).toBeUndefined()
+  })
+
+  it("returns undefined on JSON parse error", () => {
+    expect(deriveGrammaticalForms(makeCard({ forms: "not valid json" }))).toBeUndefined()
+  })
+
+  it("returns undefined for word card with no gender or plural", () => {
+    const card = makeCard({
+      card_type: "word",
+      forms: JSON.stringify({
+        gender: null, article: null, plural: null, conjugations: {}, register_context: null,
+      }),
+    })
+    expect(deriveGrammaticalForms(card)).toBeUndefined()
+  })
+})
+
+describe("deriveFirstExampleSentence", () => {
+  it("returns first sentence from JSON array", () => {
+    const card = makeCard({
+      example_sentences: JSON.stringify([
+        "No te hagas el tonto, te vi.",
+        "Siempre se hace el tonto.",
+      ]),
+    })
+    expect(deriveFirstExampleSentence(card)).toBe("No te hagas el tonto, te vi.")
+  })
+
+  it("returns undefined when example_sentences is null", () => {
+    expect(deriveFirstExampleSentence(makeCard({ example_sentences: null }))).toBeUndefined()
+  })
+
+  it("returns undefined on JSON parse error", () => {
+    expect(deriveFirstExampleSentence(makeCard({ example_sentences: "invalid json" }))).toBeUndefined()
+  })
+
+  it("returns undefined for empty array", () => {
+    expect(deriveFirstExampleSentence(makeCard({ example_sentences: JSON.stringify([]) }))).toBeUndefined()
+  })
+})
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })

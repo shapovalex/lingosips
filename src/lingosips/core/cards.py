@@ -80,21 +80,32 @@ You are a language learning assistant. Given a word or phrase in a target langua
 return ONLY a JSON object with these exact fields. No markdown, no explanation, no extra text.
 
 {
-  "translation": "English translation or meaning",
+  "card_type": "word | sentence | collocation",
+  "translation": "English translation or idiomatic meaning",
   "forms": {
     "gender": "masculine | feminine | neuter | null",
     "article": "definite article or null",
     "plural": "plural form or null",
-    "conjugations": {}
+    "conjugations": {},
+    "register_context": "register or style note for collocations/sentences, or null"
   },
   "example_sentences": ["Example sentence 1 using the word.", "Example sentence 2."]
 }
 
 Rules:
 - Return ONLY the JSON object
-- example_sentences must have exactly 2 sentences
+- card_type classification:
+    "word": single word (noun, verb, adjective, adverb)
+    "collocation": fixed multi-word phrase (idiom, set phrase, verb+noun, e.g. "hacer el tonto")
+    "sentence": full sentence or clause with a complete predicate
 - For verbs, populate conjugations: {"infinitive": "...", "present_1s": "...", "present_3s": "..."}
 - For nouns with gender, populate gender and article
+- For word type cards, set register_context to null
+- For sentence and collocation cards:
+    set gender/article/plural to null
+    set register_context to a brief note on register or usage (e.g., "informal, spoken Spanish")
+    translation should be the idiomatic English meaning, not word-for-word
+- example_sentences must have exactly 2 sentences in the target language
 - For other word types, set gender/article/plural to null
 - Sentences must be in the target language, not English
 """
@@ -150,12 +161,29 @@ def _parse_llm_response(raw: str) -> dict:
         raise ValueError(f"Invalid JSON in LLM response: {exc}") from exc
 
     # Apply defaults for missing fields
+    forms = parsed.get(
+        "forms",
+        {
+            "gender": None,
+            "article": None,
+            "plural": None,
+            "conjugations": {},
+            "register_context": None,
+        },
+    )
+    # Ensure register_context key always exists in forms
+    if "register_context" not in forms:
+        forms["register_context"] = None
+
+    # Normalize card_type to a known value — unknown values (e.g. "phrase") default to "word"
+    valid_card_types = {"word", "sentence", "collocation"}
+    raw_card_type = parsed.get("card_type", "word")
+    card_type = raw_card_type if raw_card_type in valid_card_types else "word"
+
     return {
+        "card_type": card_type,
         "translation": parsed.get("translation", ""),
-        "forms": parsed.get(
-            "forms",
-            {"gender": None, "article": None, "plural": None, "conjugations": {}},
-        ),
+        "forms": forms,
         "example_sentences": parsed.get("example_sentences", []),
     }
 
@@ -210,6 +238,7 @@ async def create_card_stream(
 
         # Step 3: Safety filter + emit field_update events (in order per spec)
         fields_to_emit: list[tuple[str, str | dict | list]] = [
+            ("card_type", card_data["card_type"]),
             ("translation", card_data["translation"]),
             ("forms", card_data["forms"]),
             ("example_sentences", card_data["example_sentences"]),
@@ -233,6 +262,7 @@ async def create_card_stream(
             translation=card_data["translation"],
             forms=json.dumps(card_data["forms"]),
             example_sentences=json.dumps(card_data["example_sentences"]),
+            card_type=card_data["card_type"],
             target_language=target_language,
             # FSRS columns: all default values from db/models.py are correct
             # stability=0.0, difficulty=0.0, fsrs_state="New", due=now, reps=0, lapses=0

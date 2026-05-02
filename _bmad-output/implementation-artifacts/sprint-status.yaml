@@ -1,5 +1,5 @@
 # generated: 2026-04-29
-# last_updated: 2026-05-02 (story 3.2 created)
+# last_updated: 2026-05-02 (story 3.4 review complete)
 # project: lingosips
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-29
-last_updated: 2026-05-02  # updated by code-review (story 3.3 done)
+last_updated: 2026-05-02  # updated by dev-story (story 3.4 review)
 project: lingosips
 project_key: NOKEY
 tracking_system: file-system
@@ -71,7 +71,7 @@ development_status:
   3-1-fsrs-scheduling-engine-practice-queue: done
   3-2-self-assess-practice-mode: review
   3-3-write-mode-with-ai-feedback: done
-  3-4-sentence-collocation-practice: backlog
+  3-4-sentence-collocation-practice: done
   3-5-progress-dashboard-session-stats: backlog
   epic-3-retrospective: optional
 

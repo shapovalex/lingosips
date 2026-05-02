@@ -34,6 +34,9 @@ class QueueCard(BaseModel):
     difficulty: float
     reps: int
     lapses: int
+    card_type: str = "word"  # "word" | "sentence" | "collocation"
+    forms: str | None = None  # JSON string — contains register_context for sentence/collocation
+    example_sentences: str | None = None  # JSON string — list of example sentences
 
     model_config = {"from_attributes": True}
 

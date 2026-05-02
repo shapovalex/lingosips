@@ -4,6 +4,7 @@ TDD: these tests are written BEFORE implementation to drive core/practice.py.
 AC: 1, 2, 3
 """
 
+import json as _json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -263,3 +264,168 @@ class TestEvaluateAnswer:
         result = await evaluate_answer(card, "hello", llm)
 
         assert result.correct_value == "hello"
+
+
+# ── TestSentenceEvaluation ────────────────────────────────────────────────────
+
+
+def _make_sentence_card(
+    target_word: str = "No te hagas el tonto",
+    translation: str = "don't play dumb",
+    card_type: str = "sentence",
+):
+    """Create a sentence/collocation Card for testing."""
+    from lingosips.db.models import Card
+
+    return Card(
+        id=100,
+        target_word=target_word,
+        translation=translation,
+        target_language="es",
+        card_type=card_type,
+    )
+
+
+def _make_llm_sentence_accepts(explanation: str | None = None) -> AsyncMock:
+    """LLM that returns is_correct=true."""
+    mock = AsyncMock(spec=AbstractLLMProvider)
+    mock.complete = AsyncMock(
+        return_value=_json.dumps({"is_correct": True, "explanation": explanation})
+    )
+    return mock
+
+
+def _make_llm_sentence_rejects(explanation: str = "Wrong meaning.") -> AsyncMock:
+    """LLM that returns is_correct=false."""
+    mock = AsyncMock(spec=AbstractLLMProvider)
+    mock.complete = AsyncMock(
+        return_value=_json.dumps({"is_correct": False, "explanation": explanation})
+    )
+    return mock
+
+
+def _make_llm_timeout() -> AsyncMock:
+    """LLM that raises TimeoutError."""
+    mock = AsyncMock(spec=AbstractLLMProvider)
+    mock.complete = AsyncMock(side_effect=TimeoutError())
+    return mock
+
+
+def _make_llm_bad_json() -> AsyncMock:
+    """LLM that returns malformed JSON."""
+    mock = AsyncMock(spec=AbstractLLMProvider)
+    mock.complete = AsyncMock(return_value="not json at all")
+    return mock
+
+
+@pytest.mark.anyio
+class TestSentenceEvaluation:
+    """Tests for _evaluate_sentence_answer() and evaluate_answer() branching (AC: 4)."""
+
+    async def test_exact_match_sentence_no_llm_call(self) -> None:
+        """Sentence exact match → is_correct=True, LLM not called, highlighted_chars=[]."""
+        from lingosips.core.practice import evaluate_answer
+
+        card = _make_sentence_card()
+        llm = _make_llm_sentence_accepts()
+
+        result = await evaluate_answer(card, "don't play dumb", llm)
+
+        assert result.is_correct is True
+        assert result.highlighted_chars == []
+        assert result.suggested_rating == 3
+        # LLM should not be called for exact match
+        llm.complete.assert_not_called()
+
+    async def test_paraphrase_accepted_by_llm(self) -> None:
+        """LLM returns is_correct=true for paraphrase → is_correct=True, highlighted_chars=[]."""
+        from lingosips.core.practice import evaluate_answer
+
+        card = _make_sentence_card()
+        llm = _make_llm_sentence_accepts()
+
+        result = await evaluate_answer(card, "stop pretending you don't know", llm)
+
+        assert result.is_correct is True
+        assert result.highlighted_chars == []
+        assert result.suggested_rating == 3
+
+    async def test_wrong_sentence_rejected_by_llm(self) -> None:
+        """LLM returns is_correct=false → is_correct=False, explanation populated."""
+        from lingosips.core.practice import evaluate_answer
+
+        card = _make_sentence_card()
+        llm = _make_llm_sentence_rejects("That's not the right meaning.")
+
+        result = await evaluate_answer(card, "completely wrong answer", llm)
+
+        assert result.is_correct is False
+        assert result.explanation == "That's not the right meaning."
+        assert result.suggested_rating == 1
+
+    async def test_sentence_eval_always_returns_empty_highlighted_chars(self) -> None:
+        """highlighted_chars is always [] for sentence cards regardless of result."""
+        from lingosips.core.practice import evaluate_answer
+
+        card = _make_sentence_card()
+        llm = _make_llm_sentence_rejects()
+
+        result = await evaluate_answer(card, "wrong answer", llm)
+
+        assert result.highlighted_chars == []
+
+    async def test_sentence_eval_llm_timeout_returns_incorrect_no_explanation(self) -> None:
+        """LLM timeout → is_correct=False, explanation=None."""
+        from lingosips.core.practice import evaluate_answer
+
+        card = _make_sentence_card()
+        llm = _make_llm_timeout()
+
+        result = await evaluate_answer(card, "some answer", llm)
+
+        assert result.is_correct is False
+        assert result.explanation is None
+        assert result.highlighted_chars == []
+
+    async def test_sentence_eval_llm_json_parse_error_returns_incorrect(self) -> None:
+        """Malformed LLM JSON → is_correct=False, explanation=None."""
+        from lingosips.core.practice import evaluate_answer
+
+        card = _make_sentence_card()
+        llm = _make_llm_bad_json()
+
+        result = await evaluate_answer(card, "some answer", llm)
+
+        assert result.is_correct is False
+        assert result.explanation is None
+
+    async def test_collocation_card_uses_sentence_eval_path(self) -> None:
+        """card_type='collocation' also goes through _evaluate_sentence_answer()."""
+        from lingosips.core.practice import evaluate_answer
+
+        card = _make_sentence_card(
+            target_word="morder el polvo",
+            translation="to bite the dust",
+            card_type="collocation",
+        )
+        llm = _make_llm_sentence_accepts()
+
+        result = await evaluate_answer(card, "some paraphrase", llm)
+
+        # highlighted_chars always [] for collocation cards
+        assert result.highlighted_chars == []
+
+    async def test_word_card_still_uses_char_diff_path(self) -> None:
+        """card_type='word' still uses existing char-diff + exact-match logic."""
+        from lingosips.core.practice import evaluate_answer
+
+        card = _make_card(target_word="hola", translation="hello")
+        # word card with wrong answer → should return char diff
+        llm = _make_llm(response="Missing the last letter.")
+
+        result = await evaluate_answer(card, "helo", llm)
+
+        # Word card wrong answer → char diff populated
+        assert result.is_correct is False
+        assert len(result.highlighted_chars) > 0
+        assert result.suggested_rating == 1

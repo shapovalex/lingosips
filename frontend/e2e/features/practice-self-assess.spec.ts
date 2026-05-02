@@ -180,7 +180,8 @@ test.describe("Practice Self-Assess Mode", () => {
       await page.waitForLoadState("networkidle")
 
       // Wait for the practice card to load
-      const wordEl = page.locator(".text-4xl").first()
+      // card_type-aware sizing: word cards → text-4xl, sentence/collocation → text-2xl
+      const wordEl = page.locator(".text-4xl, .text-2xl").first()
       await expect(wordEl).toBeVisible({ timeout: 5000 })
 
       // Should show "Space to reveal" hint

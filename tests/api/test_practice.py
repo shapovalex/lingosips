@@ -765,3 +765,119 @@ class TestEvaluateAnswer:
         assert response.status_code == 200
         data = response.json()
         assert data["is_correct"] is True  # stripped answer matches translation
+
+
+@pytest.mark.anyio
+class TestSentenceCardQueue:
+    """Tests for AC: 2 — QueueCard includes card_type, forms, example_sentences."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_tables(self, test_engine) -> None:
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    @pytest.fixture
+    async def sentence_card_fixture(self, session):
+        """Create a sentence card with forms/example_sentences in DB."""
+        import json
+
+        from lingosips.db.models import Card, Settings
+
+        settings = Settings(active_target_language="es")
+        session.add(settings)
+        card = Card(
+            target_word="no te hagas el tonto",
+            translation="don't play dumb",
+            target_language="es",
+            card_type="sentence",
+            forms=json.dumps(
+                {
+                    "gender": None,
+                    "article": None,
+                    "plural": None,
+                    "conjugations": {},
+                    "register_context": "informal, River Plate Spanish",
+                }
+            ),
+            example_sentences=json.dumps(
+                ["No te hagas el tonto, te vi.", "Siempre se hace el tonto."]
+            ),
+        )
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+        return card
+
+    @pytest.fixture
+    async def word_card_fixture(self, session):
+        """Create a standard word card in DB."""
+        import json
+
+        from lingosips.db.models import Card, Settings
+
+        settings = Settings(active_target_language="es")
+        session.add(settings)
+        card = Card(
+            target_word="melancólico",
+            translation="melancholic",
+            target_language="es",
+            card_type="word",
+            forms=json.dumps(
+                {
+                    "gender": "masculine",
+                    "article": "el",
+                    "plural": "melancólicos",
+                    "conjugations": {},
+                    "register_context": None,
+                }
+            ),
+            example_sentences=json.dumps(
+                ["Tenía un aire melancólico.", "Era un día melancólico."]
+            ),
+        )
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+        return card
+
+    async def test_session_includes_card_type_in_response(
+        self, client: AsyncClient, sentence_card_fixture
+    ) -> None:
+        """GET /practice/session/start includes card_type field (AC: 2)."""
+        response = await client.post("/practice/session/start")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) > 0
+        assert "card_type" in data[0]
+        assert data[0]["card_type"] == "sentence"
+
+    async def test_session_includes_forms_and_example_sentences(
+        self, client: AsyncClient, sentence_card_fixture
+    ) -> None:
+        """Queue response includes forms (JSON string) and example_sentences (AC: 2)."""
+        response = await client.post("/practice/session/start")
+        data = response.json()
+        assert "forms" in data[0]
+        assert "example_sentences" in data[0]
+        assert data[0]["forms"] is not None
+        assert data[0]["example_sentences"] is not None
+
+    async def test_word_card_type_defaults_in_response(
+        self, client: AsyncClient, word_card_fixture
+    ) -> None:
+        """Existing word cards show card_type='word' in queue response (AC: 6 backwards compat)."""
+        response = await client.post("/practice/session/start")
+        data = response.json()
+        assert len(data) > 0
+        assert data[0]["card_type"] == "word"
+
+    async def test_queue_endpoint_includes_card_type(
+        self, client: AsyncClient, sentence_card_fixture
+    ) -> None:
+        """GET /practice/queue also exposes card_type (AC: 2)."""
+        response = await client.get("/practice/queue")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) > 0
+        assert "card_type" in data[0]
