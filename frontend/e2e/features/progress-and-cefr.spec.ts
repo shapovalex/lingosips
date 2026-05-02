@@ -162,6 +162,52 @@ test.describe("CEFR profile endpoint (Story 5.1)", () => {
   })
 })
 
+test.describe("CEFR Profile UI (Story 5.2)", () => {
+  test.beforeEach(async ({ request }) => {
+    await resetDb(request)
+  })
+
+  test("shows CEFR level badge on Progress page with seeded review data", async ({
+    page,
+    request,
+  }) => {
+    // Seed 10 cards and rate each Easy (4) — moves cards to FSRS Review state
+    // (vocabulary_breadth = 10, total_reviews = 10 ≥ backend threshold for non-null level)
+    const words = [
+      "hola", "gracias", "agua", "casa", "libro",
+      "mesa", "silla", "puerta", "tiempo", "mundo",
+    ]
+    await Promise.all(words.map((w) => createCard(request, w)))
+
+    const sessionResponse = await request.post("/practice/session/start")
+    expect(sessionResponse.ok()).toBe(true)
+    const { session_id, cards: sessionCards } = await sessionResponse.json()
+
+    for (const sessionCard of sessionCards ?? []) {
+      await request.post(`/practice/cards/${sessionCard.id}/rate`, {
+        data: { rating: 4, session_id },
+      })
+    }
+
+    await page.goto("/progress")
+
+    await expect(page.getByRole("heading", { name: /cefr profile/i })).toBeVisible()
+    await expect(page.getByRole("region", { name: /cefr profile/i })).toBeVisible()
+    // 10 reviews with cards in Review FSRS state → non-null CEFR level badge (A1–C2)
+    await expect(page.getByText(/^(A1|A2|B1|B2|C1|C2)$/)).toBeVisible()
+  })
+
+  test("shows null level message with zero reviews", async ({ page }) => {
+    // Empty DB — no reviews, CEFR level should be null
+    await page.goto("/progress")
+
+    await expect(page.getByRole("heading", { name: /cefr profile/i })).toBeVisible()
+    await expect(page.getByText(/keep practicing/i)).toBeVisible()
+    // No CEFR level badge should appear in the null-level state
+    await expect(page.getByText(/^(A1|A2|B1|B2|C1|C2)$/)).toHaveCount(0)
+  })
+})
+
 test.describe("SessionSummary — neutral tone (AC3)", () => {
   test.beforeEach(async ({ request }) => {
     await resetDb(request)

@@ -1395,9 +1395,7 @@ class TestSessionMode:
             await conn.execute(text("DELETE FROM cards"))
             await conn.execute(text("DELETE FROM settings"))
 
-    async def test_start_session_with_mode_stored(
-        self, client: AsyncClient, session
-    ) -> None:
+    async def test_start_session_with_mode_stored(self, client: AsyncClient, session) -> None:
         """POST /practice/session/start?mode=write → practice_session.mode == 'write'."""
         from lingosips.db.models import PracticeSession
 

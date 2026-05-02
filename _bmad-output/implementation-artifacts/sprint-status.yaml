@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-29
-last_updated: 2026-05-02  # story 5.1 review complete
+last_updated: 2026-05-02  # story 5.2 done
 project: lingosips
 project_key: NOKEY
 tracking_system: file-system
@@ -85,5 +85,5 @@ development_status:
   # Epic 5: CEFR Learner Intelligence
   epic-5: in-progress
   5-1-cefr-profile-computation-engine: done
-  5-2-cefr-level-display-knowledge-profile-breakdown: backlog
+  5-2-cefr-level-display-knowledge-profile-breakdown: done
   epic-5-retrospective: optional
