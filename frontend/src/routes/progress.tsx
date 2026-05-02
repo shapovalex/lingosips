@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { ProgressDashboard } from "@/features/progress"
 
 export const Route = createFileRoute("/progress")({
   component: ProgressPage,
@@ -7,8 +8,8 @@ export const Route = createFileRoute("/progress")({
 function ProgressPage() {
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-semibold text-zinc-50">Progress</h1>
-      <p className="mt-2 text-zinc-400">Progress dashboard — implemented in Story 3.5.</p>
+      <h1 className="text-2xl font-semibold text-zinc-50 mb-6">Progress</h1>
+      <ProgressDashboard />
     </div>
   )
 }

@@ -88,7 +88,7 @@ test.beforeEach(async ({ page }) => {
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-test("practice queue includes card_type, forms, example_sentences on session start (AC: 2)", async ({ page, request }) => {
+test("practice queue includes card_type, forms, example_sentences on session start (AC: 2)", async ({ request }) => {
   // Create a sentence-like phrase card — LLM should detect it as sentence/collocation
   await createDueSentenceCard(request, {
     targetWord: "hace el tonto",
@@ -99,8 +99,9 @@ test("practice queue includes card_type, forms, example_sentences on session sta
   const response = await request.post("http://localhost:7842/practice/session/start")
   expect(response.ok()).toBeTruthy()
   const data = await response.json()
-  expect(data).toHaveLength(1)
-  const card = data[0]
+  // Story 3.5: session/start now returns { session_id, cards } instead of a flat array
+  expect(data.cards).toHaveLength(1)
+  const card = data.cards[0]
   expect(card).toHaveProperty("card_type")
   expect(card).toHaveProperty("forms")
   expect(card).toHaveProperty("example_sentences")

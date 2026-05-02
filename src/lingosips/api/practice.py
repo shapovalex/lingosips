@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lingosips.core import fsrs as core_fsrs
 from lingosips.core import practice as core_practice
 from lingosips.core import settings as core_settings
-from lingosips.db.models import Card
+from lingosips.db.models import Card, PracticeSession
 from lingosips.db.session import get_session
 from lingosips.services.llm.base import AbstractLLMProvider
 from lingosips.services.registry import get_llm_provider
@@ -41,8 +41,14 @@ class QueueCard(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SessionStartResponse(BaseModel):
+    session_id: int
+    cards: list[QueueCard]
+
+
 class RateCardRequest(BaseModel):
     rating: int  # 1=Again, 2=Hard, 3=Good, 4=Easy
+    session_id: int | None = None  # links review to practice session
 
     @field_validator("rating")
     @classmethod
@@ -83,14 +89,15 @@ class NextDueResponse(BaseModel):
     next_due: datetime | None = None
 
 
-@router.post("/session/start", response_model=list[QueueCard])
+@router.post("/session/start", response_model=SessionStartResponse)
 async def start_session(
     session: AsyncSession = Depends(get_session),
-) -> list[QueueCard]:
-    """Return the due card queue for a new session, limited by cards_per_session setting.
+) -> SessionStartResponse:
+    """Create a practice session, return session_id and due cards.
 
+    Creates a PracticeSession row for session stats tracking.
     Respects active_target_language and cards_per_session from Settings.
-    Returns [] (never null) when nothing is due.
+    Returns session_id=<id>, cards=[] when nothing is due.
     """
     settings = await core_settings.get_or_create_settings(session)
     active_lang = settings.active_target_language
@@ -104,7 +111,17 @@ async def start_session(
         .limit(limit)
     )
     cards = result.scalars().all()
-    return [QueueCard.model_validate(c) for c in cards]
+
+    # Create practice session record BEFORE returning cards
+    practice_session = PracticeSession()
+    session.add(practice_session)
+    await session.commit()
+    await session.refresh(practice_session)
+
+    return SessionStartResponse(
+        session_id=practice_session.id,
+        cards=[QueueCard.model_validate(c) for c in cards],
+    )
 
 
 @router.get("/next-due", response_model=NextDueResponse)
@@ -151,7 +168,7 @@ async def rate_card(
                 "detail": f"Card {card_id} does not exist",
             },
         )
-    updated_card = await core_fsrs.rate_card(card, request.rating, session)
+    updated_card = await core_fsrs.rate_card(card, request.rating, session, request.session_id)
     return RatedCardResponse.model_validate(updated_card)
 
 

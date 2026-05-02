@@ -69,6 +69,14 @@ class Settings(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_now)
 
 
+class PracticeSession(SQLModel, table=True):
+    __tablename__ = "practice_sessions"
+
+    id: int | None = Field(default=None, primary_key=True)
+    started_at: datetime = Field(default_factory=_now)
+    ended_at: datetime | None = None  # null until at least one card is rated
+
+
 class Review(SQLModel, table=True):
     __tablename__ = "reviews"
 
@@ -78,6 +86,10 @@ class Review(SQLModel, table=True):
     reviewed_at: datetime = Field(
         default_factory=_now, index=True
     )  # ix_reviews_reviewed_at — CEFR profile aggregation
+    # ADD: links review to practice session for session stats
+    session_id: int | None = Field(
+        default=None, foreign_key="practice_sessions.id", index=True
+    )  # ix_reviews_session_id — session stats lookup
     # Post-review FSRS state snapshot (for CEFR profile aggregation)
     stability_after: float
     difficulty_after: float

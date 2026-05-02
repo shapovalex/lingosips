@@ -324,7 +324,7 @@ class TestSessionStart:
             await conn.execute(text("DELETE FROM settings"))
 
     async def test_session_start_returns_due_cards(self, client: AsyncClient, session) -> None:
-        """POST /practice/session/start → 200, list[QueueCard] with due cards."""
+        """POST /practice/session/start → 200, SessionStartResponse with session_id + cards."""
         from lingosips.db.models import Card, Settings
 
         settings = Settings(active_target_language="es")
@@ -340,9 +340,13 @@ class TestSessionStart:
         response = await client.post("/practice/session/start")
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, list)
-        assert len(data) == 1
-        assert data[0]["target_word"] == "hola"
+        # Response is now { session_id, cards } not a raw list
+        assert "session_id" in data
+        assert isinstance(data["session_id"], int)
+        assert "cards" in data
+        assert isinstance(data["cards"], list)
+        assert len(data["cards"]) == 1
+        assert data["cards"][0]["target_word"] == "hola"
         # Verify QueueCard shape
         for field in [
             "id",
@@ -355,7 +359,7 @@ class TestSessionStart:
             "reps",
             "lapses",
         ]:
-            assert field in data[0], f"Missing field: {field}"
+            assert field in data["cards"][0], f"Missing field: {field}"
 
     async def test_session_start_respects_cards_per_session(
         self, client: AsyncClient, session
@@ -378,12 +382,12 @@ class TestSessionStart:
         response = await client.post("/practice/session/start")
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
+        assert len(data["cards"]) == 2
 
     async def test_session_start_empty_when_no_cards_due(
         self, client: AsyncClient, session
     ) -> None:
-        """POST returns [] (never null) when no cards are due."""
+        """POST returns cards=[] (never null) when no cards are due."""
         from lingosips.db.models import Card, Settings
 
         settings = Settings(active_target_language="es")
@@ -400,7 +404,8 @@ class TestSessionStart:
         response = await client.post("/practice/session/start")
         assert response.status_code == 200
         data = response.json()
-        assert data == []
+        assert data["cards"] == []
+        assert "session_id" in data
 
     async def test_session_start_filters_by_active_language(
         self, client: AsyncClient, session
@@ -420,8 +425,8 @@ class TestSessionStart:
         response = await client.post("/practice/session/start")
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["target_word"] == "bonjour"
+        assert len(data["cards"]) == 1
+        assert data["cards"][0]["target_word"] == "bonjour"
 
     async def test_session_start_orders_by_due_asc(self, client: AsyncClient, session) -> None:
         """POST returns cards ordered by due date ascending (oldest first)."""
@@ -447,9 +452,196 @@ class TestSessionStart:
         response = await client.post("/practice/session/start")
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
-        assert data[0]["target_word"] == "antiguo"  # oldest due first
-        assert data[1]["target_word"] == "nuevo"
+        assert len(data["cards"]) == 2
+        assert data["cards"][0]["target_word"] == "antiguo"  # oldest due first
+        assert data["cards"][1]["target_word"] == "nuevo"
+
+
+@pytest.mark.anyio
+class TestRateCardWithSession:
+    """Tests for POST /practice/cards/{card_id}/rate persisting session_id (Story 3.5 AC: 4)."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_tables(self, test_engine) -> None:
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM reviews"))
+            await conn.execute(text("DELETE FROM practice_sessions"))
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    @pytest.fixture
+    async def card_fixture(self, session):
+        from lingosips.db.models import Card, Settings
+
+        settings = Settings(active_target_language="es")
+        session.add(settings)
+        card = Card(target_word="sesión", target_language="es")
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+        return card
+
+    @pytest.fixture
+    async def practice_session_fixture(self, session):
+        from lingosips.db.models import PracticeSession
+
+        ps = PracticeSession()
+        session.add(ps)
+        await session.commit()
+        await session.refresh(ps)
+        return ps
+
+    async def test_review_has_session_id_when_provided(
+        self, client: AsyncClient, session, card_fixture, practice_session_fixture
+    ) -> None:
+        """POST with session_id → review row has correct session_id."""
+        from sqlalchemy import select
+
+        from lingosips.db.models import Review
+
+        card_id = card_fixture.id
+        session_id = practice_session_fixture.id
+
+        response = await client.post(
+            f"/practice/cards/{card_id}/rate", json={"rating": 3, "session_id": session_id}
+        )
+        assert response.status_code == 200
+
+        session.expire_all()
+        result = await session.execute(select(Review).where(Review.card_id == card_id))
+        reviews = result.scalars().all()
+        assert len(reviews) == 1
+        assert reviews[0].session_id == session_id
+
+    async def test_review_has_null_session_id_when_not_provided(
+        self, client: AsyncClient, session, card_fixture
+    ) -> None:
+        """POST without session_id → review row has session_id=None."""
+        from sqlalchemy import select
+
+        from lingosips.db.models import Review
+
+        card_id = card_fixture.id
+        response = await client.post(f"/practice/cards/{card_id}/rate", json={"rating": 3})
+        assert response.status_code == 200
+
+        session.expire_all()
+        result = await session.execute(select(Review).where(Review.card_id == card_id))
+        reviews = result.scalars().all()
+        assert len(reviews) == 1
+        assert reviews[0].session_id is None
+
+    async def test_practice_session_ended_at_updated_on_rating(
+        self, client: AsyncClient, session, card_fixture, practice_session_fixture
+    ) -> None:
+        """POST with session_id → PracticeSession.ended_at is updated."""
+        from lingosips.db.models import PracticeSession
+
+        card_id = card_fixture.id
+        session_id = practice_session_fixture.id
+
+        response = await client.post(
+            f"/practice/cards/{card_id}/rate", json={"rating": 3, "session_id": session_id}
+        )
+        assert response.status_code == 200
+
+        session.expire_all()
+        ps = await session.get(PracticeSession, session_id)
+        assert ps is not None
+        assert ps.ended_at is not None
+
+    async def test_invalid_session_id_accepted_gracefully(
+        self, client: AsyncClient, session, card_fixture
+    ) -> None:
+        """POST with non-existent session_id → still succeeds (graceful null handling)."""
+        card_id = card_fixture.id
+        response = await client.post(
+            f"/practice/cards/{card_id}/rate", json={"rating": 3, "session_id": 99999}
+        )
+        assert response.status_code == 200
+
+
+@pytest.mark.anyio
+class TestSessionStartCreatesSession:
+    """Tests for POST /practice/session/start creating PracticeSession row (Story 3.5 AC: 4)."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_tables(self, test_engine) -> None:
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM reviews"))
+            await conn.execute(text("DELETE FROM practice_sessions"))
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    async def test_session_start_returns_session_id(self, client: AsyncClient) -> None:
+        """POST /practice/session/start → response includes session_id integer."""
+        response = await client.post("/practice/session/start")
+        assert response.status_code == 200
+        data = response.json()
+        assert "session_id" in data
+        assert isinstance(data["session_id"], int)
+
+    async def test_session_start_returns_cards_field(self, client: AsyncClient, session) -> None:
+        """POST /practice/session/start → response includes cards list."""
+        from lingosips.db.models import Card, Settings
+
+        settings = Settings(active_target_language="es")
+        session.add(settings)
+        from datetime import UTC, datetime, timedelta
+
+        card = Card(
+            target_word="hola",
+            target_language="es",
+            due=datetime.now(UTC) - timedelta(hours=1),
+        )
+        session.add(card)
+        await session.commit()
+
+        response = await client.post("/practice/session/start")
+        assert response.status_code == 200
+        data = response.json()
+        assert "cards" in data
+        assert isinstance(data["cards"], list)
+        assert len(data["cards"]) == 1
+        assert data["cards"][0]["target_word"] == "hola"
+
+    async def test_session_start_creates_practice_session_row(
+        self, client: AsyncClient, session
+    ) -> None:
+        """POST /practice/session/start creates a PracticeSession row in DB."""
+
+        from lingosips.db.models import PracticeSession
+
+        response = await client.post("/practice/session/start")
+        assert response.status_code == 200
+        session_id = response.json()["session_id"]
+
+        session.expire_all()
+        ps = await session.get(PracticeSession, session_id)
+        assert ps is not None
+        assert ps.started_at is not None
+
+    async def test_session_id_is_integer(self, client: AsyncClient) -> None:
+        """session_id must be a positive integer."""
+        response = await client.post("/practice/session/start")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data["session_id"], int)
+        assert data["session_id"] > 0
+
+    async def test_empty_queue_still_creates_session(self, client: AsyncClient, session) -> None:
+        """Empty due queue still creates a PracticeSession row and returns session_id."""
+        from lingosips.db.models import PracticeSession
+
+        response = await client.post("/practice/session/start")
+        assert response.status_code == 200
+        data = response.json()
+        assert "session_id" in data
+        assert data["cards"] == []
+
+        session.expire_all()
+        ps = await session.get(PracticeSession, data["session_id"])
+        assert ps is not None
 
 
 @pytest.mark.anyio
@@ -848,9 +1040,9 @@ class TestSentenceCardQueue:
         response = await client.post("/practice/session/start")
         assert response.status_code == 200
         data = response.json()
-        assert len(data) > 0
-        assert "card_type" in data[0]
-        assert data[0]["card_type"] == "sentence"
+        assert len(data["cards"]) > 0
+        assert "card_type" in data["cards"][0]
+        assert data["cards"][0]["card_type"] == "sentence"
 
     async def test_session_includes_forms_and_example_sentences(
         self, client: AsyncClient, sentence_card_fixture
@@ -858,10 +1050,10 @@ class TestSentenceCardQueue:
         """Queue response includes forms (JSON string) and example_sentences (AC: 2)."""
         response = await client.post("/practice/session/start")
         data = response.json()
-        assert "forms" in data[0]
-        assert "example_sentences" in data[0]
-        assert data[0]["forms"] is not None
-        assert data[0]["example_sentences"] is not None
+        assert "forms" in data["cards"][0]
+        assert "example_sentences" in data["cards"][0]
+        assert data["cards"][0]["forms"] is not None
+        assert data["cards"][0]["example_sentences"] is not None
 
     async def test_word_card_type_defaults_in_response(
         self, client: AsyncClient, word_card_fixture
@@ -869,8 +1061,8 @@ class TestSentenceCardQueue:
         """Existing word cards show card_type='word' in queue response (AC: 6 backwards compat)."""
         response = await client.post("/practice/session/start")
         data = response.json()
-        assert len(data) > 0
-        assert data[0]["card_type"] == "word"
+        assert len(data["cards"]) > 0
+        assert data["cards"][0]["card_type"] == "word"
 
     async def test_queue_endpoint_includes_card_type(
         self, client: AsyncClient, sentence_card_fixture

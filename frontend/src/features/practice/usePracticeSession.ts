@@ -18,6 +18,12 @@ import type { PracticeMode } from "@/lib/stores/usePracticeStore"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+// Internal type for session start response shape (Story 3.5)
+type SessionStartApiResponse = {
+  session_id: number
+  cards: QueueCard[]
+}
+
 export type QueueCard = {
   id: number
   target_word: string
@@ -61,6 +67,7 @@ export interface UsePracticeSessionReturn {
   rollbackCardId: number | null
   evaluateAnswer: (cardId: number, answer: string) => void
   evaluationResult: EvaluationResult | "pending" | null
+  sessionId: number | null  // for linking session to progress page (Story 3.5)
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -74,14 +81,16 @@ export function usePracticeSession(_mode?: PracticeMode): UsePracticeSessionRetu
   const [rollbackCardId, setRollbackCardId] = useState<number | null>(null)
   const [pendingCardId, setPendingCardId] = useState<number | null>(null)
   const [evaluationResult, setEvaluationResult] = useState<EvaluationResult | "pending" | null>(null)
+  const [sessionId, setSessionId] = useState<number | null>(null)
 
   // ── Fetch session cards on mount ─────────────────────────────────────────
 
-  const startMutation = useMutation<QueueCard[], Error>({
-    mutationFn: () => post<QueueCard[]>("/practice/session/start", undefined),
-    onSuccess: (cards) => {
-      setSessionCards(cards)
-      if (cards.length === 0) {
+  const startMutation = useMutation<SessionStartApiResponse, Error>({
+    mutationFn: () => post<SessionStartApiResponse>("/practice/session/start", undefined),
+    onSuccess: (data) => {
+      setSessionId(data.session_id)
+      setSessionCards(data.cards)
+      if (data.cards.length === 0) {
         setSessionPhase("complete")
       } else {
         setSessionPhase("practicing")
@@ -101,11 +110,11 @@ export function usePracticeSession(_mode?: PracticeMode): UsePracticeSessionRetu
   const rateCardMutation = useMutation<
     RatedCardResponse,
     Error,
-    { cardId: number; rating: number; cardIndex: number },
+    { cardId: number; rating: number; cardIndex: number; sessionId: number | null },
     { previousEvaluationResult: EvaluationResult | "pending" | null }
   >({
-    mutationFn: ({ cardId, rating }) =>
-      post<RatedCardResponse>(`/practice/cards/${cardId}/rate`, { rating }),
+    mutationFn: ({ cardId, rating, sessionId: sid }) =>
+      post<RatedCardResponse>(`/practice/cards/${cardId}/rate`, { rating, session_id: sid }),
     onMutate: ({ cardId, cardIndex, rating }) => {
       // Optimistic: advance immediately — 60fps, no spinner
       // Capture evaluation result BEFORE clearing so it can be restored on rollback.
@@ -185,9 +194,9 @@ export function usePracticeSession(_mode?: PracticeMode): UsePracticeSessionRetu
       // rated while the previous API call is still in-flight (optimistic advance
       // already moved currentCardIndex forward).
       if (pendingCardId === cardId) return
-      rateCardMutation.mutate({ cardId, rating, cardIndex: currentCardIndex })
+      rateCardMutation.mutate({ cardId, rating, cardIndex: currentCardIndex, sessionId })
     },
-    [rateCardMutation, currentCardIndex, pendingCardId]
+    [rateCardMutation, currentCardIndex, pendingCardId, sessionId]
   )
 
   const evaluateAnswer = useCallback(
@@ -219,5 +228,6 @@ export function usePracticeSession(_mode?: PracticeMode): UsePracticeSessionRetu
     rollbackCardId,
     evaluateAnswer,
     evaluationResult,
+    sessionId,
   }
 }

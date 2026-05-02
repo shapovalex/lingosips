@@ -115,7 +115,18 @@ export function PracticeCard({
   onEvaluate,
   evaluationResult,
 }: PracticeCardProps) {
-  const [cardState, setCardState] = useState<PracticeCardState>(initialState)
+  const [cardStateBase, setCardState] = useState<PracticeCardState>(initialState)
+
+  // Derive effective card state: transition write-active → write-result during render
+  // when the evaluation result arrives. This avoids a synchronous setState in a useEffect
+  // and is the React-idiomatic way to handle prop-driven state transitions.
+  const cardState: PracticeCardState =
+    evaluationResult &&
+    evaluationResult !== "pending" &&
+    cardStateBase === "write-active"
+      ? "write-result"
+      : cardStateBase
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [userAnswer, setUserAnswer] = useState<string | null>(null)
 
@@ -129,18 +140,6 @@ export function PracticeCard({
       textareaRef.current?.focus()
     }
   }, [cardState])
-
-  // ── Transition write-active → write-result when eval result arrives ───────
-
-  useEffect(() => {
-    if (
-      evaluationResult &&
-      evaluationResult !== "pending" &&
-      cardState === "write-active"
-    ) {
-      setCardState("write-result")
-    }
-  }, [evaluationResult, cardState])
 
   // ── Keyboard handler — document-level (no focus required) ─────────────��───
 

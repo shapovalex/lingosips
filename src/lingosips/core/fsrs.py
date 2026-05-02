@@ -16,7 +16,7 @@ from fsrs import Card as FsrsCard
 from fsrs import Rating, Scheduler, State
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lingosips.db.models import Card, Review
+from lingosips.db.models import Card, PracticeSession, Review
 
 # Module-level singleton — created once per process
 _scheduler = Scheduler(desired_retention=0.9)
@@ -92,22 +92,29 @@ def build_fsrs_card(db_card: Card) -> FsrsCard:
     return fsrs_card
 
 
-async def rate_card(db_card: Card, rating: int, session: AsyncSession) -> Card:
+async def rate_card(
+    db_card: Card,
+    rating: int,
+    session: AsyncSession,
+    session_id: int | None = None,
+) -> Card:
     """Apply an FSRS rating to a card, update the DB, and insert a review row.
 
     Steps:
     1. Rebuild fsrs.Card from current DB state
     2. Call scheduler.review_card() to get new scheduling values
     3. Update db_card fields: stability, difficulty, due, last_review, reps, lapses, fsrs_state
-    4. Insert a Review row (post-review FSRS snapshot)
-    5. session.add(review) + await session.commit()
-    6. await session.refresh(db_card)
-    7. Return updated db_card
+    4. Insert a Review row (post-review FSRS snapshot) with optional session_id
+    5. Update PracticeSession.ended_at if session_id is provided
+    6. session.add(review) + await session.commit()
+    7. await session.refresh(db_card)
+    8. Return updated db_card
 
     Args:
         db_card: The Card ORM instance to rate (must already be persisted).
         rating: Integer 1–4 (Again=1, Hard=2, Good=3, Easy=4).
         session: Async SQLAlchemy session — caller owns lifecycle.
+        session_id: Optional PracticeSession.id to link this review to a session.
 
     Raises:
         ValueError: If rating is not in the range 1–4.
@@ -157,10 +164,19 @@ async def rate_card(db_card: Card, rating: int, session: AsyncSession) -> Card:
         fsrs_state_after=db_card.fsrs_state,
         reps_after=db_card.reps,
         lapses_after=db_card.lapses,
+        session_id=session_id,
     )
 
     # db_card is already tracked by the session (loaded via session.get) — no re-add needed.
     session.add(review)
+
+    # Update PracticeSession.ended_at so session stats know the last review time.
+    if session_id is not None:
+        ps = await session.get(PracticeSession, session_id)
+        if ps is not None:
+            ps.ended_at = now
+            session.add(ps)
+
     await session.commit()
     await session.refresh(db_card)
 

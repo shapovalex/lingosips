@@ -69,6 +69,7 @@ def create_app() -> FastAPI:
     from lingosips.api.imports import router as imports_router
     from lingosips.api.models import router as models_router
     from lingosips.api.practice import router as practice_router
+    from lingosips.api.progress import router as progress_router
     from lingosips.api.services import router as services_router
     from lingosips.api.settings import router as settings_router
 
@@ -196,6 +197,7 @@ def create_app() -> FastAPI:
     application.include_router(models_router, prefix="/models", tags=["models"])
     application.include_router(cards_router, prefix="/cards", tags=["cards"])
     application.include_router(practice_router, prefix="/practice", tags=["practice"])
+    application.include_router(progress_router, prefix="/progress", tags=["progress"])
     application.include_router(services_router, prefix="/services", tags=["services"])
     application.include_router(decks_router, prefix="/decks", tags=["decks"])
     application.include_router(imports_router)

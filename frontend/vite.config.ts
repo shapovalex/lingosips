@@ -65,6 +65,14 @@ export default defineConfig({
           if (accept.includes("text/html")) return "/index.html"
         },
       },
+      "/progress": {
+        target: "http://127.0.0.1:7842",
+        changeOrigin: true,
+        bypass(req) {
+          const accept = req.headers.accept ?? ""
+          if (accept.includes("text/html")) return "/index.html"
+        },
+      },
       "/services": {
         target: "http://127.0.0.1:7842",
         changeOrigin: true,

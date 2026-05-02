@@ -181,6 +181,49 @@ class TestIndexes:
             assert result.fetchone() is not None, "ix_reviews_reviewed_at index not found"
 
 
+class TestPracticeSessionsTable:
+    """Tests for migration 002 — practice_sessions table and reviews.session_id column."""
+
+    def test_practice_sessions_table_exists(self, migrated_engine) -> None:
+        """practice_sessions table exists after migration 002."""
+        with migrated_engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name='practice_sessions'"
+                )
+            )
+            assert result.fetchone() is not None, "practice_sessions table not found"
+
+    def test_practice_sessions_has_required_columns(self, migrated_engine) -> None:
+        """practice_sessions table has id, started_at, ended_at columns."""
+        with migrated_engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(practice_sessions)"))
+            columns = {row[1] for row in result.fetchall()}
+
+        required = {"id", "started_at", "ended_at"}
+        missing = required - columns
+        assert not missing, f"Missing columns on practice_sessions: {missing}"
+
+    def test_reviews_has_session_id_column(self, migrated_engine) -> None:
+        """reviews table has session_id column after migration 002."""
+        with migrated_engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(reviews)"))
+            columns = {row[1] for row in result.fetchall()}
+        assert "session_id" in columns, "reviews.session_id column missing"
+
+    def test_ix_reviews_session_id_exists(self, migrated_engine) -> None:
+        """ix_reviews_session_id index exists on reviews.session_id."""
+        with migrated_engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='index' "
+                    "AND name='ix_reviews_session_id'"
+                )
+            )
+            assert result.fetchone() is not None, "ix_reviews_session_id index not found"
+
+
 class TestMigrationIdempotency:
     def test_running_upgrade_head_twice_does_not_fail(self) -> None:
         """Running alembic upgrade head twice is idempotent."""

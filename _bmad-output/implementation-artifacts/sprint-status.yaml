@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-29
-last_updated: 2026-05-02  # updated by dev-story (story 3.4 review)
+last_updated: 2026-05-02  # updated by code-review (story 3.5 done)
 project: lingosips
 project_key: NOKEY
 tracking_system: file-system
@@ -72,7 +72,7 @@ development_status:
   3-2-self-assess-practice-mode: review
   3-3-write-mode-with-ai-feedback: done
   3-4-sentence-collocation-practice: done
-  3-5-progress-dashboard-session-stats: backlog
+  3-5-progress-dashboard-session-stats: done
   epic-3-retrospective: optional
 
   # Epic 4: Speak Mode & Pronunciation Mastery

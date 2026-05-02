@@ -98,7 +98,7 @@ describe("usePracticeSession", () => {
   })
 
   it("transitions to practicing phase after session cards are fetched", async () => {
-    mockPost.mockResolvedValueOnce(MOCK_CARDS) // session/start
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS }) // session/start
     mockPost.mockResolvedValue(MOCK_RATED_CARD)  // cards/{id}/rate
     const { wrapper } = createWrapper()
     const { result } = renderHook(
@@ -113,7 +113,7 @@ describe("usePracticeSession", () => {
   })
 
   it("transitions to complete phase when session starts with 0 cards", async () => {
-    mockPost.mockResolvedValueOnce([]) // empty queue
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: [] }) // empty queue
     const { wrapper } = createWrapper()
     const { result } = renderHook(
       () => usePracticeSession(),
@@ -127,7 +127,7 @@ describe("usePracticeSession", () => {
   })
 
   it("rateCard advances to next card immediately (optimistic)", async () => {
-    mockPost.mockResolvedValueOnce(MOCK_CARDS) // session/start
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS }) // session/start
     mockPost.mockResolvedValue(MOCK_RATED_CARD)  // cards/{id}/rate
 
     const { wrapper } = createWrapper()
@@ -149,7 +149,7 @@ describe("usePracticeSession", () => {
 
   it("rateCard on last card transitions to complete phase", async () => {
     const oneCard = [MOCK_CARDS[0]]
-    mockPost.mockResolvedValueOnce(oneCard) // session/start
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: oneCard }) // session/start
     mockPost.mockResolvedValue(MOCK_RATED_CARD)  // cards/{id}/rate
 
     const { wrapper } = createWrapper()
@@ -169,7 +169,7 @@ describe("usePracticeSession", () => {
   })
 
   it("tracks ratings for recall rate calculation", async () => {
-    mockPost.mockResolvedValueOnce(MOCK_CARDS) // session/start
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS }) // session/start
     mockPost.mockResolvedValue(MOCK_RATED_CARD)  // cards/{id}/rate
 
     const { wrapper } = createWrapper()
@@ -201,7 +201,7 @@ describe("usePracticeSession", () => {
 
   it("exposes isLastCard correctly", async () => {
     const twoCards = MOCK_CARDS.slice(0, 2)
-    mockPost.mockResolvedValueOnce(twoCards)
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: twoCards })
     mockPost.mockResolvedValue(MOCK_RATED_CARD)
 
     const { wrapper } = createWrapper()
@@ -218,7 +218,7 @@ describe("usePracticeSession", () => {
   })
 
   it("calls POST /practice/session/start on mount", async () => {
-    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
     mockPost.mockResolvedValue(MOCK_RATED_CARD)
 
     const { wrapper } = createWrapper()
@@ -230,7 +230,7 @@ describe("usePracticeSession", () => {
   })
 
   it("fires POST /practice/cards/{id}/rate in background after rateCard", async () => {
-    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
     mockPost.mockResolvedValue(MOCK_RATED_CARD)
 
     const { wrapper } = createWrapper()
@@ -244,12 +244,12 @@ describe("usePracticeSession", () => {
     act(() => { result.current.rateCard(1, 3) })
 
     await waitFor(() => {
-      expect(mockPost).toHaveBeenCalledWith("/practice/cards/1/rate", { rating: 3 })
+      expect(mockPost).toHaveBeenCalledWith("/practice/cards/1/rate", { rating: 3, session_id: 1 })
     })
   })
 
   it("rateCard error rolls back: sets rollbackCardId and returns to same card", async () => {
-    mockPost.mockResolvedValueOnce(MOCK_CARDS)           // session/start
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })  // session/start
     mockPost.mockRejectedValueOnce(new Error("Network")) // rate fails
 
     const { wrapper } = createWrapper()
@@ -270,7 +270,7 @@ describe("usePracticeSession", () => {
 
   it("rateCard error on last card restores practicing phase (not complete)", async () => {
     const oneCard = [MOCK_CARDS[0]]
-    mockPost.mockResolvedValueOnce(oneCard)              // session/start
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: oneCard })  // session/start
     mockPost.mockRejectedValueOnce(new Error("Network")) // rate fails
 
     const { wrapper } = createWrapper()
@@ -288,6 +288,80 @@ describe("usePracticeSession", () => {
   })
 })
 
+// ── session_id tracking tests ─────────────────────────────────────────────────
+
+describe("usePracticeSession — session_id tracking", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    usePracticeStore.setState({
+      sessionState: "idle",
+      mode: null,
+      currentCardIndex: 0,
+    })
+  })
+
+  const MOCK_SESSION_RESPONSE = { session_id: 42, cards: MOCK_CARDS }
+
+  it("extracts session_id from SessionStartResponse", async () => {
+    mockPost.mockResolvedValueOnce(MOCK_SESSION_RESPONSE)
+    mockPost.mockResolvedValue(MOCK_RATED_CARD)
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+    expect(result.current.sessionId).toBe(42)
+  })
+
+  it("sessionId is null before session starts", () => {
+    mockPost.mockReturnValue(new Promise(() => {}))
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    expect(result.current.sessionId).toBeNull()
+  })
+
+  it("passes session_id to rate card API call", async () => {
+    mockPost.mockResolvedValueOnce(MOCK_SESSION_RESPONSE)
+    mockPost.mockResolvedValue(MOCK_RATED_CARD)
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => { result.current.rateCard(1, 3) })
+
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith(
+        "/practice/cards/1/rate",
+        { rating: 3, session_id: 42 }
+      )
+    })
+  })
+
+  it("returns sessionId from hook when session started", async () => {
+    mockPost.mockResolvedValueOnce(MOCK_SESSION_RESPONSE)
+    mockPost.mockResolvedValue(MOCK_RATED_CARD)
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+    expect(result.current.sessionId).toBe(42)
+  })
+
+  it("handles empty cards with session_id correctly", async () => {
+    mockPost.mockResolvedValueOnce({ session_id: 99, cards: [] })
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession(), { wrapper })
+
+    await waitFor(() => expect(result.current.sessionPhase).toBe("complete"))
+    expect(result.current.sessionId).toBe(99)
+  })
+})
+
 // ── evaluateAnswer mutation tests ─────────────────────────────────────────────
 
 describe("usePracticeSession — evaluateAnswer", () => {
@@ -301,7 +375,7 @@ describe("usePracticeSession — evaluateAnswer", () => {
   })
 
   it("evaluationResult starts as null", async () => {
-    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
     const { wrapper } = createWrapper()
     const { result } = renderHook(() => usePracticeSession(), { wrapper })
 
@@ -310,7 +384,7 @@ describe("usePracticeSession — evaluateAnswer", () => {
   })
 
   it("evaluationResult becomes 'pending' when evaluateAnswer is called", async () => {
-    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
     // evaluateAnswer call never resolves to test pending state
     mockPost.mockReturnValueOnce(new Promise(() => {}))
     const { wrapper } = createWrapper()
@@ -333,7 +407,7 @@ describe("usePracticeSession — evaluateAnswer", () => {
       explanation: "Missing letter.",
       suggested_rating: 1,
     }
-    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
     mockPost.mockResolvedValueOnce(mockEvalResult)
     const { wrapper } = createWrapper()
     const { result } = renderHook(() => usePracticeSession(), { wrapper })
@@ -350,7 +424,7 @@ describe("usePracticeSession — evaluateAnswer", () => {
   })
 
   it("evaluationResult becomes null on evaluate error", async () => {
-    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
     mockPost.mockRejectedValueOnce(new Error("Network error"))
     const { wrapper } = createWrapper()
     const { result } = renderHook(() => usePracticeSession(), { wrapper })
@@ -375,7 +449,7 @@ describe("usePracticeSession — evaluateAnswer", () => {
       explanation: null,
       suggested_rating: 3,
     }
-    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
     mockPost.mockResolvedValueOnce(mockEvalResult)  // evaluate
     mockPost.mockResolvedValue(MOCK_RATED_CARD)      // rate
 
@@ -394,7 +468,7 @@ describe("usePracticeSession — evaluateAnswer", () => {
   })
 
   it("calls POST /practice/cards/{id}/evaluate with correct payload", async () => {
-    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
     mockPost.mockResolvedValueOnce({ is_correct: true, highlighted_chars: [], correct_value: "hello", explanation: null, suggested_rating: 3 })
     const { wrapper } = createWrapper()
     const { result } = renderHook(() => usePracticeSession(), { wrapper })
@@ -409,7 +483,7 @@ describe("usePracticeSession — evaluateAnswer", () => {
   })
 
   it("hook accepts optional mode param without breaking existing behavior", async () => {
-    mockPost.mockResolvedValueOnce(MOCK_CARDS)
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
     const { wrapper } = createWrapper()
     const { result } = renderHook(
       () => usePracticeSession("write"),
@@ -428,7 +502,7 @@ describe("usePracticeSession — evaluateAnswer", () => {
       explanation: "Wrong answer.",
       suggested_rating: 1,
     }
-    mockPost.mockResolvedValueOnce(MOCK_CARDS)         // session/start
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })         // session/start
     mockPost.mockResolvedValueOnce(mockEvalResult)     // evaluate
     mockPost.mockRejectedValueOnce(new Error("Network error"))  // rate fails
 
