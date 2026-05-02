@@ -4,7 +4,7 @@
  * AC: 3, 10
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import { createElement } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { deriveGrammaticalForms, deriveFirstExampleSentence } from "./practice"
@@ -24,13 +24,17 @@ vi.mock("@/features/practice/usePracticeSession", () => ({
   usePracticeSession: () => mockUsePracticeSession(),
 }))
 
-// Mock PracticeCard
+// PracticeCard mock that captures all props including speak props
+let capturedPracticeCardProps: Record<string, unknown> = {}
 vi.mock("@/features/practice/PracticeCard", () => ({
-  PracticeCard: ({ card, onRate }: { card: { target_word: string }; onRate: (r: number) => void }) =>
-    createElement("div", {
+  PracticeCard: (props: { card: { target_word: string }; onRate: (r: number) => void; initialState?: string; onSpeak?: () => void; onSkip?: () => void; syllableFeedbackState?: string; isRecording?: boolean }) => {
+    capturedPracticeCardProps = props as unknown as Record<string, unknown>
+    return createElement("div", {
       "data-testid": "practice-card",
-      onClick: () => onRate(3),
-    }, card.target_word),
+      "data-initial-state": props.initialState,
+      onClick: () => props.onRate(3),
+    }, props.card.target_word)
+  },
 }))
 
 // Mock SessionSummary
@@ -41,8 +45,9 @@ vi.mock("@/features/practice/SessionSummary", () => ({
     ),
 }))
 
-// Mock the router
+// Mock the router — mode is mutable so tests can override it per describe block
 const mockNavigate = vi.fn()
+let mockCurrentMode: "self_assess" | "write" | "speak" = "self_assess"
 vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>()
   return {
@@ -50,7 +55,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
     // createFileRoute returns an object with useSearch and the component
     createFileRoute: (_path: string) => (config: { component: React.ComponentType; validateSearch?: unknown }) => ({
       ...config,
-      useSearch: () => ({ mode: "self_assess" }),
+      useSearch: () => ({ mode: mockCurrentMode }),
     }),
     useNavigate: () => mockNavigate,
   }
@@ -354,5 +359,160 @@ describe("PracticePage — write mode", () => {
     const PracticePage = await importPracticePage()
     render(createElement(PracticePage), { wrapper })
     expect(mockUsePracticeSession).toHaveBeenCalled()
+  })
+})
+
+// ── Speak mode tests ───────────────────────────────────────────────────────────
+
+describe("PracticePage — speak mode", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedPracticeCardProps = {}
+    mockCurrentMode = "speak"  // set speak mode for all tests in this describe
+    vi.mocked(usePracticeStore).mockImplementation((selector) => {
+      const state = {
+        sessionState: "active" as const,
+        mode: "speak" as const,
+        currentCardIndex: 0,
+        sessionCount: 0,
+        startSession: vi.fn(),
+        endSession: vi.fn(),
+        nextCard: vi.fn(),
+        prevCard: vi.fn(),
+      }
+      return selector(state)
+    })
+  })
+
+  afterEach(() => {
+    mockCurrentMode = "self_assess"  // reset after speak mode tests
+  })
+
+  it("speak mode renders D5 full-viewport wrapper (items-center, no pt-16)", async () => {
+    mockUsePracticeSession.mockReturnValue({
+      sessionPhase: "practicing",
+      currentCard: MOCK_CARD,
+      isLastCard: false,
+      rateCard: mockRateCard,
+      evaluateAnswer: mockEvaluateAnswer,
+      evaluationResult: null,
+      sessionSummary: undefined,
+      rollbackCardId: null,
+      evaluateSpeech: vi.fn(),
+      speechResult: null,
+      skipCard: vi.fn(),
+    })
+
+    const PracticePage = await importPracticePage()
+    render(createElement(PracticePage), { wrapper })
+
+    const card = screen.getByTestId("practice-card")
+    // The outer container should have items-center (D5) not items-start (D4)
+    const outerContainer = card.closest("[class*='items-center']")
+    expect(outerContainer).toBeInTheDocument()
+    // Should NOT have pt-16 in speak mode
+    const ptSixteen = card.closest("[class*='pt-16']")
+    expect(ptSixteen).not.toBeInTheDocument()
+  })
+
+  it("initialState is 'speak-recording' when mode === 'speak'", async () => {
+    mockUsePracticeSession.mockReturnValue({
+      sessionPhase: "practicing",
+      currentCard: MOCK_CARD,
+      isLastCard: false,
+      rateCard: mockRateCard,
+      evaluateAnswer: mockEvaluateAnswer,
+      evaluationResult: null,
+      sessionSummary: undefined,
+      rollbackCardId: null,
+      evaluateSpeech: vi.fn(),
+      speechResult: null,
+      skipCard: vi.fn(),
+    })
+
+    const PracticePage = await importPracticePage()
+    render(createElement(PracticePage), { wrapper })
+
+    const card = screen.getByTestId("practice-card")
+    expect(card.getAttribute("data-initial-state")).toBe("speak-recording")
+  })
+
+  it("onSpeak and onSkip props are passed to PracticeCard in speak mode", async () => {
+    const mockEvaluateSpeech = vi.fn()
+    const mockSkipCard = vi.fn()
+
+    mockUsePracticeSession.mockReturnValue({
+      sessionPhase: "practicing",
+      currentCard: MOCK_CARD,
+      isLastCard: false,
+      rateCard: mockRateCard,
+      evaluateAnswer: mockEvaluateAnswer,
+      evaluationResult: null,
+      sessionSummary: undefined,
+      rollbackCardId: null,
+      evaluateSpeech: mockEvaluateSpeech,
+      speechResult: null,
+      skipCard: mockSkipCard,
+    })
+
+    const PracticePage = await importPracticePage()
+    render(createElement(PracticePage), { wrapper })
+
+    // Verify PracticeCard received onSpeak and onSkip props
+    expect(capturedPracticeCardProps.onSpeak).toBeDefined()
+    expect(capturedPracticeCardProps.onSkip).toBeDefined()
+  })
+
+  it("isRecording=false is passed to PracticeCard initially (AC3)", async () => {
+    mockUsePracticeSession.mockReturnValue({
+      sessionPhase: "practicing",
+      currentCard: MOCK_CARD,
+      isLastCard: false,
+      rateCard: mockRateCard,
+      evaluateAnswer: mockEvaluateAnswer,
+      evaluationResult: null,
+      sessionSummary: undefined,
+      rollbackCardId: null,
+      evaluateSpeech: vi.fn(),
+      speechResult: null,
+      skipCard: vi.fn(),
+    })
+
+    const PracticePage = await importPracticePage()
+    render(createElement(PracticePage), { wrapper })
+
+    // Initially not recording
+    expect(capturedPracticeCardProps.isRecording).toBe(false)
+  })
+
+  it("syllableFeedbackState='fallback-notice' when speechResult has provider_used='local_whisper' (AC4)", async () => {
+    mockUsePracticeSession.mockReturnValue({
+      sessionPhase: "practicing",
+      currentCard: MOCK_CARD,
+      isLastCard: false,
+      rateCard: mockRateCard,
+      evaluateAnswer: mockEvaluateAnswer,
+      evaluationResult: null,
+      sessionSummary: undefined,
+      rollbackCardId: null,
+      evaluateSpeech: vi.fn(),
+      speechResult: {
+        overall_correct: false,
+        syllables: [{ syllable: "ho", correct: false, score: 0.2 }],
+        correction_message: "Try again",
+        provider_used: "local_whisper",
+      },
+      skipCard: vi.fn(),
+      // showFallbackNotice is now managed inside usePracticeSession (mutation callback);
+      // the mock must provide it directly rather than relying on a useEffect in practice.tsx
+      showFallbackNotice: true,
+    })
+
+    const PracticePage = await importPracticePage()
+    render(createElement(PracticePage), { wrapper })
+
+    await waitFor(() => {
+      expect(capturedPracticeCardProps.syllableFeedbackState).toBe("fallback-notice")
+    })
   })
 })

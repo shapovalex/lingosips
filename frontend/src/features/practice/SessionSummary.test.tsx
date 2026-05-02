@@ -171,4 +171,41 @@ describe("SessionSummary", () => {
     expect(endSessionMock).not.toHaveBeenCalled()
     expect(mockNavigate).not.toHaveBeenCalled()
   })
+
+  // ── firstAttemptSuccessRate (speak mode) ───────────────────────────────────
+
+  it("shows first-attempt success rate when prop is provided", () => {
+    render(
+      <SessionSummary
+        cardsReviewed={5}
+        recallRate={0.8}
+        nextDue={null}
+        firstAttemptSuccessRate={0.75}
+      />
+    )
+    expect(screen.getByText(/first-attempt success: 75%/i)).toBeInTheDocument()
+  })
+
+  it("does NOT show first-attempt success rate when prop is undefined", () => {
+    render(
+      <SessionSummary
+        cardsReviewed={5}
+        recallRate={0.8}
+        nextDue={null}
+      />
+    )
+    expect(screen.queryByText(/first-attempt success/i)).not.toBeInTheDocument()
+  })
+
+  it("rounds first-attempt success rate to nearest integer percent", () => {
+    render(
+      <SessionSummary
+        cardsReviewed={3}
+        recallRate={1.0}
+        nextDue={null}
+        firstAttemptSuccessRate={1 / 3}
+      />
+    )
+    expect(screen.getByText(/first-attempt success: 33%/i)).toBeInTheDocument()
+  })
 })

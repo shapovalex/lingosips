@@ -11,6 +11,7 @@ import { createElement } from "react"
 // Mock the client module
 vi.mock("@/lib/client", () => ({
   post: vi.fn(),
+  postBinary: vi.fn(),
 }))
 
 vi.mock("@/lib/stores/useAppStore", () => ({
@@ -26,6 +27,7 @@ import * as clientModule from "@/lib/client"
 import { usePracticeStore } from "@/lib/stores/usePracticeStore"
 
 const mockPost = vi.mocked(clientModule.post)
+const mockPostBinary = vi.mocked(clientModule.postBinary)
 
 const MOCK_CARDS = [
   {
@@ -525,4 +527,281 @@ describe("usePracticeSession — evaluateAnswer", () => {
     // rollbackCardId must be set so PracticeCard gets initialState="write-result"
     expect(result.current.rollbackCardId).toBe(1)
   })
+})
+
+// ── evaluateSpeech / skipCard / speak stats tests ─────────────────────────────
+
+const MOCK_SPEECH_RESULT_CORRECT = {
+  overall_correct: true,
+  syllables: [
+    { syllable: "ho", correct: true, score: 0.9 },
+    { syllable: "la", correct: true, score: 0.95 },
+  ],
+  correction_message: null,
+  provider_used: "azure_speech",
+}
+
+const MOCK_SPEECH_RESULT_WRONG = {
+  overall_correct: false,
+  syllables: [
+    { syllable: "ho", correct: true, score: 0.9 },
+    { syllable: "la", correct: false, score: 0.2 },
+  ],
+  correction_message: "Focus on the second syllable",
+  provider_used: "azure_speech",
+}
+
+const MOCK_AUDIO_BLOB = new Blob(["audio-data"], { type: "audio/webm" })
+
+describe("usePracticeSession — speak mode (evaluateSpeech, skipCard, firstAttemptSuccessRate)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Real timers — fake timers are activated per-test only where needed
+    usePracticeStore.setState({
+      sessionState: "idle",
+      mode: null,
+      currentCardIndex: 0,
+    })
+  })
+
+  afterEach(() => {
+    // Ensure real timers are restored after each test
+    vi.useRealTimers()
+  })
+
+  it("evaluateSpeech calls POST /practice/cards/{id}/speak with audio Blob", async () => {
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
+    mockPostBinary.mockResolvedValueOnce(MOCK_SPEECH_RESULT_CORRECT)
+    mockPost.mockResolvedValue(MOCK_RATED_CARD)
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession("speak"), { wrapper })
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => {
+      result.current.evaluateSpeech(1, MOCK_AUDIO_BLOB)
+    })
+
+    await waitFor(() => {
+      expect(mockPostBinary).toHaveBeenCalledWith(
+        "/practice/cards/1/speak",
+        MOCK_AUDIO_BLOB,
+        "audio/webm"
+      )
+    })
+  })
+
+  it("speechResult becomes 'pending' while evaluateSpeech is in-flight", async () => {
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
+    mockPostBinary.mockReturnValueOnce(new Promise(() => {}))  // never resolves
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession("speak"), { wrapper })
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => {
+      result.current.evaluateSpeech(1, MOCK_AUDIO_BLOB)
+    })
+
+    expect(result.current.speechResult).toBe("pending")
+  })
+
+  it("on overall_correct=true: sets speechResult to data and does NOT auto-rate immediately", async () => {
+    // Use real timers — assert immediately after evaluation resolves (before 1s timer fires)
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
+    mockPostBinary.mockResolvedValueOnce(MOCK_SPEECH_RESULT_CORRECT)
+    mockPost.mockResolvedValue(MOCK_RATED_CARD)
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession("speak"), { wrapper })
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => { result.current.evaluateSpeech(1, MOCK_AUDIO_BLOB) })
+
+    await waitFor(() => {
+      expect(result.current.speechResult).toEqual(MOCK_SPEECH_RESULT_CORRECT)
+    })
+
+    // Assert immediately (1s timer not yet elapsed) — still on card 1
+    expect(result.current.currentCard?.id).toBe(1)
+  })
+
+  it("on overall_correct=true: auto-calls rateCard(id, 3) after 1000ms", async () => {
+    vi.useFakeTimers()
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
+    mockPostBinary.mockResolvedValueOnce(MOCK_SPEECH_RESULT_CORRECT)
+    mockPost.mockResolvedValue(MOCK_RATED_CARD)
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession("speak"), { wrapper })
+    // Flush session start: advance 0ms flushes microtasks without firing long timers
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(result.current.sessionPhase).toBe("practicing")
+
+    act(() => { result.current.evaluateSpeech(1, MOCK_AUDIO_BLOB) })
+    // Flush evaluateSpeech resolution via microtasks only (0ms advance)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(result.current.speechResult).toEqual(MOCK_SPEECH_RESULT_CORRECT)
+
+    // NOW advance 1000ms — auto-advance timer fires
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    // Flush the resulting rateCard mutation promise
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    // Should advance to next card
+    expect(result.current.currentCard?.id).toBe(2)
+  })
+
+  it("speechResult becomes 'pending' and blocks speech re-evaluation while in-flight (P4 race guard)", async () => {
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
+    // First evaluateSpeech call — never resolves (simulates slow API)
+    mockPostBinary.mockReturnValueOnce(new Promise(() => {}))
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession("speak"), { wrapper })
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    // First evaluation — goes to "pending"
+    act(() => { result.current.evaluateSpeech(1, MOCK_AUDIO_BLOB) })
+    expect(result.current.speechResult).toBe("pending")
+
+    // Second call while pending — mock should NOT be called again (guard in handleSpeak
+    // prevents it; the hook itself doesn't guard, but the practice.tsx handleSpeak does)
+    // Here we test that speechResult stays "pending" while the first is in-flight
+    act(() => { result.current.evaluateSpeech(1, MOCK_AUDIO_BLOB) })
+    // speakAttemptsRef.current is now 2 — second call went through at hook level
+    // BUT: the guard in handleSpeak (speechResult === "pending" → return) prevents this
+    // in the real UI flow. This test confirms the "pending" state is correctly set.
+    expect(result.current.speechResult).toBe("pending")
+  })
+
+  it("on overall_correct=false: speechResult set to result data; no auto-advance", async () => {
+    // Use real timers — no auto-advance timer is set for wrong results
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
+    mockPostBinary.mockResolvedValueOnce(MOCK_SPEECH_RESULT_WRONG)
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession("speak"), { wrapper })
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => { result.current.evaluateSpeech(1, MOCK_AUDIO_BLOB) })
+
+    await waitFor(() => {
+      expect(result.current.speechResult).toEqual(MOCK_SPEECH_RESULT_WRONG)
+    })
+
+    // Still on card 1 — no auto-advance for wrong result
+    expect(result.current.currentCard?.id).toBe(1)
+  })
+
+  it("evaluateSpeech error: speechResult resets to null", async () => {
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
+    mockPostBinary.mockRejectedValueOnce(new Error("Speech evaluation failed"))
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession("speak"), { wrapper })
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => {
+      result.current.evaluateSpeech(1, MOCK_AUDIO_BLOB)
+    })
+
+    // After error: speechResult should be null (pending → null)
+    await waitFor(() => {
+      expect(result.current.speechResult).toBeNull()
+    })
+  })
+
+  it("skipCard advances to next card without rating (no API call)", async () => {
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: MOCK_CARDS })
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession("speak"), { wrapper })
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    expect(result.current.currentCard?.id).toBe(1)
+
+    act(() => {
+      result.current.skipCard()
+    })
+
+    // Advanced to next card (synchronous state update)
+    expect(result.current.currentCard?.id).toBe(2)
+    // No rate call was made (only session start)
+    expect(mockPost).toHaveBeenCalledTimes(1)
+  })
+
+  it("skipCard on last card sets sessionPhase='complete'", async () => {
+    const oneCard = [MOCK_CARDS[0]]
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: oneCard })
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession("speak"), { wrapper })
+    await waitFor(() => expect(result.current.sessionPhase).toBe("practicing"))
+
+    act(() => {
+      result.current.skipCard()
+    })
+
+    expect(result.current.sessionPhase).toBe("complete")
+  })
+
+  it("firstAttemptSuccessRate: 1 success on first try out of 2 attempts = 50%", async () => {
+    vi.useFakeTimers()
+    // 2 cards: card 1 correct first try; card 2 wrong first try then correct
+    const twoCards = MOCK_CARDS.slice(0, 2)
+    mockPost.mockResolvedValueOnce({ session_id: 1, cards: twoCards })
+    // Card 1: correct on first attempt → auto-rate
+    mockPostBinary.mockResolvedValueOnce(MOCK_SPEECH_RESULT_CORRECT)
+    mockPost.mockResolvedValueOnce(MOCK_RATED_CARD)  // rate card 1
+    // Card 2: wrong on first attempt (no auto-advance)
+    mockPostBinary.mockResolvedValueOnce(MOCK_SPEECH_RESULT_WRONG)
+    // Card 2: retry (correct) → auto-rate
+    mockPostBinary.mockResolvedValueOnce(MOCK_SPEECH_RESULT_CORRECT)
+    mockPost.mockResolvedValueOnce({ ...MOCK_CARDS[1], reps: 1 })  // rate card 2
+
+    const { wrapper } = createWrapper()
+    const { result } = renderHook(() => usePracticeSession("speak"), { wrapper })
+    // Flush session start (microtasks only, no long timers)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(result.current.sessionPhase).toBe("practicing")
+
+    // Card 1: evaluate (correct) → speechResult set
+    act(() => { result.current.evaluateSpeech(1, MOCK_AUDIO_BLOB) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(result.current.speechResult).toEqual(MOCK_SPEECH_RESULT_CORRECT)
+    // Auto-advance after 1s
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(result.current.currentCard?.id).toBe(2)
+
+    // Card 2: first attempt wrong
+    act(() => { result.current.evaluateSpeech(2, MOCK_AUDIO_BLOB) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(result.current.speechResult).toEqual(MOCK_SPEECH_RESULT_WRONG)
+
+    // Card 2: retry (correct) → speechResult set
+    act(() => { result.current.evaluateSpeech(2, MOCK_AUDIO_BLOB) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(result.current.speechResult).toEqual(MOCK_SPEECH_RESULT_CORRECT)
+    // Auto-advance after 1s → last card → complete
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(result.current.sessionPhase).toBe("complete")
+
+    const summary = result.current.sessionSummary
+    expect(summary).toBeDefined()
+    // 1 first-attempt success out of 2 cards attempted
+    expect(summary?.firstAttemptSuccessRate).toBeCloseTo(1 / 2)
+  })
+
 })

@@ -3,7 +3,7 @@
  * TDD: written before implementation.
  * AC: 4, 5, 6, 7
  */
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { PracticeCard } from "./PracticeCard"
 import type { QueueCard, EvaluationResult } from "./usePracticeSession"
@@ -161,14 +161,14 @@ describe("PracticeCard", () => {
     expect(againBtn).toHaveAttribute("aria-keyshortcuts", "1")
   })
 
-  // ── Speak stubs (Epic 4) ───────────────────────────────────────────────────
+  // ── Speak stubs (Epic 4 — replaced by real implementation in Story 4.3) ──────
 
-  it("renders speak-recording placeholder with correct data-testid", () => {
+  it("renders speak-recording state with correct data-testid", () => {
     render(<PracticeCard card={MOCK_CARD} onRate={onRate} sessionCount={0} initialState="speak-recording" />)
     expect(screen.getByTestId("practice-card-speak-recording")).toBeInTheDocument()
   })
 
-  it("renders speak-result placeholder with correct data-testid", () => {
+  it("renders speak-result state with correct data-testid", () => {
     render(<PracticeCard card={MOCK_CARD} onRate={onRate} sessionCount={0} initialState="speak-result" />)
     expect(screen.getByTestId("practice-card-speak-result")).toBeInTheDocument()
   })
@@ -649,5 +649,345 @@ describe("write-active — userAnswer capture", () => {
     const submitBtn = screen.getByRole("button", { name: /submit/i })
     fireEvent.click(submitBtn)
     expect(onEvaluate).toHaveBeenCalledWith("my button answer")
+  })
+})
+
+// ── Speak mode — speak-recording state ────────────────────────────────────────
+
+describe("PracticeCard — speak-recording state", () => {
+  const onRate = vi.fn()
+  const onSpeak = vi.fn()
+  const onSkip = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    localStorage.clear()
+  })
+
+  it("renders mic button with aria-label and card target word", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-recording"
+      />
+    )
+    expect(screen.getByText("melancólico")).toBeInTheDocument()
+    const micBtn = screen.getByRole("button", { name: /record pronunciation/i })
+    expect(micBtn).toBeInTheDocument()
+  })
+
+  it("shows first-use tooltip when localStorage key is unset", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-recording"
+      />
+    )
+    expect(screen.getByText(/tap mic to record/i)).toBeInTheDocument()
+  })
+
+  it("does NOT show tooltip when localStorage key is '1'", () => {
+    localStorage.setItem("lingosips-speak-tooltip-shown", "1")
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-recording"
+      />
+    )
+    expect(screen.queryByText(/tap mic to record/i)).not.toBeInTheDocument()
+  })
+
+  it("R key fires onSpeak callback", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-recording"
+      />
+    )
+    fireEvent.keyDown(document, { key: "r" })
+    expect(onSpeak).toHaveBeenCalledTimes(1)
+  })
+
+  it("S key fires onSkip callback", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-recording"
+      />
+    )
+    fireEvent.keyDown(document, { key: "s" })
+    expect(onSkip).toHaveBeenCalledTimes(1)
+  })
+
+  it("space key does NOT flip card or rate in speak-recording state", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-recording"
+      />
+    )
+    fireEvent.keyDown(document, { code: "Space", key: " " })
+    expect(onRate).not.toHaveBeenCalled()
+    // card should still be in speak-recording state (target word visible, no translation flipTo-reveal)
+    expect(screen.getByTestId("practice-card-speak-recording")).toBeInTheDocument()
+  })
+
+  it("Skip button fires onSkip", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-recording"
+      />
+    )
+    const skipBtn = screen.getByRole("button", { name: /skip/i })
+    fireEvent.click(skipBtn)
+    expect(onSkip).toHaveBeenCalledTimes(1)
+  })
+
+  // ── AC3: isRecording prop — animate-pulse and dynamic aria-label ───────────
+
+  it("mic button has animate-pulse class when isRecording=true", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-recording"
+        isRecording={true}
+      />
+    )
+    const micBtn = screen.getByRole("button", { name: /recording — release to evaluate/i })
+    expect(micBtn).toHaveClass("animate-pulse")
+  })
+
+  it("mic button does NOT have animate-pulse when isRecording=false (default)", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-recording"
+      />
+    )
+    const micBtn = screen.getByRole("button", { name: /record pronunciation/i })
+    expect(micBtn).not.toHaveClass("animate-pulse")
+  })
+
+  it("mic button aria-label changes to 'Recording — release to evaluate' when isRecording=true", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-recording"
+        isRecording={true}
+      />
+    )
+    expect(
+      screen.getByRole("button", { name: "Recording — release to evaluate" })
+    ).toBeInTheDocument()
+  })
+})
+
+// ── Speak mode — speak-result state ──────────────────────────────────────────
+
+const MOCK_SYLLABLES = [
+  { syllable: "me", correct: true, score: 0.9 },
+  { syllable: "lan", correct: false, score: 0.3 },
+  { syllable: "có", correct: true, score: 0.85 },
+  { syllable: "li", correct: false, score: 0.2 },
+  { syllable: "co", correct: true, score: 0.8 },
+]
+
+describe("PracticeCard — speak-result state", () => {
+  const onRate = vi.fn()
+  const onSpeak = vi.fn()
+  const onSkip = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("renders SyllableFeedback with passed syllable props", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-result"
+        syllableFeedbackState="result-partial"
+        speechSyllables={MOCK_SYLLABLES}
+        speechCorrectionMessage="Focus on 'lan' and 'li'"
+      />
+    )
+    // SyllableFeedback renders target word in header
+    expect(screen.getByText("melancólico")).toBeInTheDocument()
+    // SyllableFeedback should be present (renders correction message area)
+    expect(screen.getByTestId("practice-card-speak-result")).toBeInTheDocument()
+  })
+
+  it("R key fires onSpeak in speak-result state", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-result"
+        syllableFeedbackState="result-partial"
+        speechSyllables={MOCK_SYLLABLES}
+      />
+    )
+    fireEvent.keyDown(document, { key: "R" })
+    expect(onSpeak).toHaveBeenCalledTimes(1)
+  })
+
+  it("Skip button fires onSkip in speak-result state", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-result"
+        syllableFeedbackState="result-partial"
+        speechSyllables={MOCK_SYLLABLES}
+      />
+    )
+    const skipBtn = screen.getByRole("button", { name: /skip/i })
+    fireEvent.click(skipBtn)
+    expect(onSkip).toHaveBeenCalledTimes(1)
+  })
+
+  it("syllableFeedbackState='evaluating' renders SyllableFeedback in evaluating state", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-result"
+        syllableFeedbackState="evaluating"
+      />
+    )
+    // In evaluating state, SyllableFeedback shows "Evaluating..."
+    expect(screen.getByText(/evaluating/i)).toBeInTheDocument()
+  })
+
+  it("result-partial: SyllableFeedback onRetry calls onSpeak", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-result"
+        syllableFeedbackState="result-partial"
+        speechSyllables={MOCK_SYLLABLES}
+      />
+    )
+    // "Try again" button inside SyllableFeedback calls onRetry → onSpeak
+    const tryAgainBtn = screen.getByRole("button", { name: /try again/i })
+    fireEvent.click(tryAgainBtn)
+    expect(onSpeak).toHaveBeenCalledTimes(1)
+  })
+
+  it("result-partial: SyllableFeedback onMoveOn calls onRate(1)", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-result"
+        syllableFeedbackState="result-partial"
+        speechSyllables={MOCK_SYLLABLES}
+      />
+    )
+    // "Move on" button inside SyllableFeedback calls onMoveOn → onRate(1)
+    const moveOnBtn = screen.getByRole("button", { name: /move on/i })
+    fireEvent.click(moveOnBtn)
+    expect(onRate).toHaveBeenCalledWith(1)
+  })
+
+  it("space key does NOT trigger self-assess shortcuts in speak-result state", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-result"
+        syllableFeedbackState="result-partial"
+        speechSyllables={MOCK_SYLLABLES}
+      />
+    )
+    fireEvent.keyDown(document, { code: "Space", key: " " })
+    expect(onRate).not.toHaveBeenCalled()
+  })
+
+  // ── AC6: "Try again" receives focus on result-partial mount ───────────────
+
+  it("'Try again' button receives focus in result-partial state (AC6)", () => {
+    render(
+      <PracticeCard
+        card={MOCK_CARD}
+        onRate={onRate}
+        onSpeak={onSpeak}
+        onSkip={onSkip}
+        sessionCount={0}
+        initialState="speak-result"
+        syllableFeedbackState="result-partial"
+        speechSyllables={MOCK_SYLLABLES}
+      />
+    )
+    const tryAgainBtn = screen.getByRole("button", { name: /try again/i })
+    expect(tryAgainBtn).toHaveFocus()
   })
 })

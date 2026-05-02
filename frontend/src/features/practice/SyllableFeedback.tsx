@@ -45,6 +45,11 @@ interface SyllableFeedbackProps {
   onRetry?: () => void
   /** Called when user taps "Move on" in result-partial state */
   onMoveOn?: () => void
+  /**
+   * AC6: When true, "Try again" receives focus when it first mounts (speak-result state).
+   * Allows the parent to set focus on the primary action without a DOM query.
+   */
+  autoFocusTryAgain?: boolean
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -85,6 +90,7 @@ function chipClasses(chipState: ChipState): string {
       return `${base} bg-zinc-900 border border-zinc-800 text-zinc-400 animate-pulse`
     default: {
       const _exhaustive: never = chipState
+      void _exhaustive  // exhaustive check — compile error if ChipState grows
       return base
     }
   }
@@ -115,6 +121,7 @@ export function SyllableFeedback({
   providerUsed: _providerUsed,
   onRetry,
   onMoveOn,
+  autoFocusTryAgain,
 }: SyllableFeedbackProps) {
   // ── Derived values ──────────────────────────────────────────────────────────
 
@@ -187,6 +194,7 @@ export function SyllableFeedback({
           <div className="flex gap-3 mt-2">
             <button
               type="button"
+              autoFocus={autoFocusTryAgain}
               onClick={() => onRetry?.()}
               className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-indigo-500 hover:bg-indigo-400 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >

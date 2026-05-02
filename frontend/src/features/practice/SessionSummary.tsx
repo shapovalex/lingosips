@@ -37,11 +37,12 @@ interface SessionSummaryProps {
   cardsReviewed: number
   recallRate: number  // 0–1 fraction
   nextDue: string | null
+  firstAttemptSuccessRate?: number  // speak mode only — omit for self-assess/write
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function SessionSummary({ cardsReviewed, recallRate, nextDue }: SessionSummaryProps) {
+export function SessionSummary({ cardsReviewed, recallRate, nextDue, firstAttemptSuccessRate }: SessionSummaryProps) {
   const navigate = useNavigate()
   const endSession = usePracticeStore((s) => s.endSession)
 
@@ -81,6 +82,11 @@ export function SessionSummary({ cardsReviewed, recallRate, nextDue }: SessionSu
         <li className="text-sm text-zinc-400">
           {nextDueText}
         </li>
+        {firstAttemptSuccessRate !== undefined && (
+          <li className="text-sm text-zinc-400">
+            First-attempt success: {Math.round(firstAttemptSuccessRate * 100)}%
+          </li>
+        )}
       </ul>
 
       {/* Return to home */}

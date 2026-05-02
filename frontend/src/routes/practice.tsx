@@ -1,22 +1,25 @@
 /**
- * routes/practice.tsx — practice session route (self-assess and write mode).
+ * routes/practice.tsx — practice session route (self-assess, write, and speak mode).
  *
  * Owns the D4 layout shell (sidebar/right column collapse handled in __root.tsx).
+ * D5 layout activates for speak mode (items-center, no pt-16).
  * Renders PracticeCard or SessionSummary based on session phase from usePracticeSession.
  *
- * AC: 3, 4, 10
+ * AC: 1, 2, 3, 4, 7, 8, 10
  */
-import { useEffect } from "react"
+import { useEffect, useCallback, useRef, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import { usePracticeSession } from "@/features/practice/usePracticeSession"
 import { PracticeCard } from "@/features/practice/PracticeCard"
 import { SessionSummary } from "@/features/practice/SessionSummary"
 import { usePracticeStore } from "@/lib/stores/usePracticeStore"
+import { useAppStore } from "@/lib/stores/useAppStore"
 import { get } from "@/lib/client"
 import type { PracticeMode } from "@/lib/stores/usePracticeStore"
 import type { PracticeCardState } from "@/features/practice/PracticeCard"
 import type { QueueCard } from "@/features/practice/usePracticeSession"
+import type { SyllableFeedbackState } from "@/features/practice/SyllableFeedback"
 
 const VALID_PRACTICE_MODES: readonly PracticeMode[] = ["self_assess", "write", "speak"]
 
@@ -78,7 +81,17 @@ function PracticePage() {
     sessionSummary,
     sessionPhase,
     rollbackCardId,
+    evaluateSpeech,
+    speechResult,
+    skipCard,
+    showFallbackNotice,
   } = usePracticeSession(mode)
+
+  // ── Speak mode: MediaRecorder refs and state ──────────────────────────────
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const isUnmountedRef = useRef(false)
+  const [isRecording, setIsRecording] = useState(false)
 
   // AC3: Activate D4 layout (sessionState → "active") on mount so sidebar and
   // right column animate out while the practice session is in progress.
@@ -86,6 +99,52 @@ function PracticePage() {
   useEffect(() => {
     startSession(mode)
   }, [startSession, mode])
+
+  // ── Speak mode: handleSpeak — MediaRecorder tap-to-record ─────────────────
+  // Tap once to start recording, tap again to stop and submit.
+  const handleSpeak = useCallback(async () => {
+    // Guard: don't start a new recording while evaluation is in-flight (race condition)
+    if (speechResult === "pending") return
+
+    if (mediaRecorderRef.current?.state === "recording") {
+      // Already recording: stop (release → submit)
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+      return
+    }
+    // Start new recording
+    audioChunksRef.current = []
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream)  // no mimeType — use browser default
+      recorder.ondataavailable = (e) => { audioChunksRef.current.push(e.data) }
+      recorder.onstop = () => {
+        const audio = new Blob(audioChunksRef.current, { type: recorder.mimeType })
+        stream.getTracks().forEach((t) => t.stop())
+        setIsRecording(false)
+        // Guard: don't call evaluateSpeech after component has unmounted
+        if (!isUnmountedRef.current && currentCard) evaluateSpeech(currentCard.id, audio)
+      }
+      recorder.start()
+      setIsRecording(true)
+      mediaRecorderRef.current = recorder
+    } catch {
+      useAppStore.getState().addNotification({
+        type: "error",
+        message: "Microphone access denied — grant permission and try again",
+      })
+    }
+  }, [currentCard, evaluateSpeech, speechResult])
+
+  // ── Speak mode: cleanup MediaRecorder on unmount to release mic (P3) ──────
+  useEffect(() => {
+    return () => {
+      isUnmountedRef.current = true
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop()
+      }
+    }
+  }, [])
 
   // AC8: Fetch next-due date when session is complete so SessionSummary can
   // display when the user's next session is scheduled.
@@ -137,6 +196,7 @@ function PracticePage() {
           cardsReviewed={sessionSummary.cardsReviewed}
           recallRate={sessionSummary.recallRate}
           nextDue={nextDueData?.next_due ?? null}
+          firstAttemptSuccessRate={sessionSummary.firstAttemptSuccessRate}
         />
       </div>
     )
@@ -148,12 +208,32 @@ function PracticePage() {
     let initialState: PracticeCardState = "front"
     if (mode === "write") {
       initialState = rollbackCardId === currentCard.id ? "write-result" : "write-active"
+    } else if (mode === "speak") {
+      initialState = rollbackCardId === currentCard.id ? "speak-result" : "speak-recording"
     } else if (rollbackCardId === currentCard.id) {
       initialState = "revealed"
     }
 
+    // Derive SyllableFeedbackState from speechResult (AC4: fallback-notice for local Whisper)
+    const syllableFeedbackState: SyllableFeedbackState = (() => {
+      if (!speechResult) return "awaiting"
+      if (speechResult === "pending") return "evaluating"
+      // TypeScript narrows speechResult to SpeechEvaluationResult here — no cast needed
+      if (showFallbackNotice) return "fallback-notice"
+      return speechResult.overall_correct ? "result-correct" : "result-partial"
+    })()
+
+    const speechResultData = speechResult !== null && speechResult !== "pending"
+      ? speechResult
+      : undefined
+
+    // D5 layout for speak mode; D4 for self-assess and write
+    const outerClassName = mode === "speak"
+      ? "flex items-center justify-center min-h-screen px-4"
+      : "flex items-start justify-center min-h-screen pt-16 px-4"
+
     return (
-      <div className="flex items-start justify-center min-h-screen pt-16 px-4">
+      <div className={outerClassName}>
         <div className="max-w-xl mx-auto w-full">
           <PracticeCard
             key={currentCard.id}
@@ -167,6 +247,13 @@ function PracticePage() {
             evaluationResult={evaluationResult}
             sessionCount={sessionCount}
             initialState={initialState}
+            onSpeak={handleSpeak}
+            onSkip={skipCard}
+            isRecording={isRecording}
+            syllableFeedbackState={syllableFeedbackState}
+            speechSyllables={speechResultData?.syllables}
+            speechCorrectionMessage={speechResultData?.correction_message}
+            speechProviderUsed={speechResultData?.provider_used}
           />
         </div>
       </div>

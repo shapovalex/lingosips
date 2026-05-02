@@ -15,6 +15,8 @@
  */
 import { useState, useEffect, useRef } from "react"
 import type { QueueCard, EvaluationResult } from "./usePracticeSession"
+import { SyllableFeedback } from "./SyllableFeedback"
+import type { SyllableFeedbackState } from "./SyllableFeedback"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -58,6 +60,20 @@ interface PracticeCardProps {
   onEvaluate?: (answer: string) => void
   /** Write mode: result from POST /practice/cards/{id}/evaluate */
   evaluationResult?: EvaluationResult | "pending" | null
+  /** Speak mode: called to start/stop recording */
+  onSpeak?: () => void
+  /** Speak mode: called to skip card without rating */
+  onSkip?: () => void
+  /** Speak mode: current SyllableFeedback display state */
+  syllableFeedbackState?: SyllableFeedbackState
+  /** Speak mode: syllable breakdown from API */
+  speechSyllables?: Array<{ syllable: string; correct: boolean; score: number }>
+  /** Speak mode: correction message from API */
+  speechCorrectionMessage?: string | null
+  /** Speak mode: provider used for speech evaluation */
+  speechProviderUsed?: string
+  /** Speak mode: true while MediaRecorder is actively recording */
+  isRecording?: boolean
 }
 
 // ── WriteResultRatingRow ──────────────────────────────────────────────────────
@@ -114,6 +130,13 @@ export function PracticeCard({
   initialState = "front",
   onEvaluate,
   evaluationResult,
+  onSpeak,
+  onSkip,
+  syllableFeedbackState,
+  speechSyllables,
+  speechCorrectionMessage,
+  speechProviderUsed,
+  isRecording = false,
 }: PracticeCardProps) {
   const [cardStateBase, setCardState] = useState<PracticeCardState>(initialState)
 
@@ -130,6 +153,11 @@ export function PracticeCard({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [userAnswer, setUserAnswer] = useState<string | null>(null)
 
+  // Speak mode: read tooltip flag once at mount (lazy initializer — localStorage read once)
+  const [hasSeenTooltip] = useState(
+    () => localStorage.getItem("lingosips-speak-tooltip-shown") === "1"
+  )
+
   // Card-type-aware font sizing: sentences/collocations use text-2xl; words use text-4xl
   const targetWordSize = card.card_type === "word" ? "text-4xl" : "text-2xl"
 
@@ -145,8 +173,11 @@ export function PracticeCard({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Guard: write mode states use their own element/component-level handlers
-      if (cardState === "write-active" || cardState === "write-result") return
+      // Guard: write and speak states use their own handlers
+      if (
+        cardState === "write-active" || cardState === "write-result" ||
+        cardState === "speak-recording" || cardState === "speak-result"
+      ) return
 
       if (e.code === "Space" && cardState === "front") {
         e.preventDefault()  // prevent page scroll
@@ -162,13 +193,112 @@ export function PracticeCard({
     return () => document.removeEventListener("keydown", handler)
   }, [cardState, onRate])
 
-  // ── Speak stubs (Stories 3.5+) ────────────────────────────────────────────
+  // ── Speak keyboard handler — R=record, S=skip (speak states only) ─────────
+
+  useEffect(() => {
+    if (cardState !== "speak-recording" && cardState !== "speak-result") return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "r" || e.key === "R") onSpeak?.()
+      if (e.key === "s" || e.key === "S") onSkip?.()
+    }
+    document.addEventListener("keydown", handler)
+    return () => document.removeEventListener("keydown", handler)
+  }, [cardState, onSpeak, onSkip])
+
+  // ── Speak-recording state ─────────────────────────────────────────────────
 
   if (cardState === "speak-recording") {
-    return <div data-testid="practice-card-speak-recording">Story 3.5 placeholder</div>
+    const markTooltipSeen = () => {
+      if (!hasSeenTooltip) {
+        localStorage.setItem("lingosips-speak-tooltip-shown", "1")
+      }
+    }
+
+    return (
+      <div
+        data-testid="practice-card-speak-recording"
+        className="flex flex-col items-center gap-6 p-8"
+      >
+        {/* Target word */}
+        <span className={`${targetWordSize} font-semibold text-zinc-50`}>{card.target_word}</span>
+
+        {/* Translation hint */}
+        {card.translation && (
+          <span className="text-lg text-zinc-400">{card.translation}</span>
+        )}
+
+        {/* First-use tooltip — shown only once */}
+        {!hasSeenTooltip && (
+          <p className="text-sm text-zinc-500 text-center">
+            Tap mic to record · release to evaluate
+          </p>
+        )}
+
+        {/* Mic button — pulses with animate-pulse while recording (AC3) */}
+        <button
+          type="button"
+          aria-label={isRecording ? "Recording — release to evaluate" : "Record pronunciation · tap and hold"}
+          onClick={() => {
+            markTooltipSeen()
+            onSpeak?.()
+          }}
+          className={`w-16 h-16 rounded-full bg-indigo-500 hover:bg-indigo-400
+                     focus:outline-none focus:ring-2 focus:ring-indigo-500
+                     flex items-center justify-center text-2xl transition-colors
+                     ${isRecording ? "animate-pulse" : ""}`}
+        >
+          🎤
+        </button>
+
+        {/* Skip button — no mic required */}
+        <button
+          type="button"
+          aria-label="Skip"
+          onClick={() => onSkip?.()}
+          className="text-sm text-zinc-500 hover:text-zinc-300 focus:outline-none
+                     focus:underline"
+        >
+          Skip
+        </button>
+      </div>
+    )
   }
+
+  // ── Speak-result state ────────────────────────────────────────────────────
+
   if (cardState === "speak-result") {
-    return <div data-testid="practice-card-speak-result">Story 3.5 placeholder</div>
+    return (
+      <div
+        data-testid="practice-card-speak-result"
+        className="flex flex-col gap-4 p-4"
+      >
+        {/* SyllableFeedback — imported directly (not via index) */}
+        <SyllableFeedback
+          targetWord={card.target_word}
+          state={syllableFeedbackState ?? "awaiting"}
+          syllables={speechSyllables}
+          correctionMessage={speechCorrectionMessage}
+          providerUsed={speechProviderUsed}
+          onRetry={() => onSpeak?.()}
+          onMoveOn={() => onRate(1)}
+          autoFocusTryAgain={true}
+        />
+
+        {/* Skip button */}
+        <div className="flex justify-center">
+          <button
+            type="button"
+            aria-label="Skip"
+            onClick={() => onSkip?.()}
+            className="px-4 py-2 rounded-lg bg-zinc-800 text-sm text-zinc-200
+                       hover:bg-zinc-700 focus:outline-none focus:ring-2
+                       focus:ring-indigo-500"
+          >
+            Skip
+          </button>
+        </div>
+      </div>
+    )
   }
 
   // ── Write-active state ────────────────────────────────────────────────────
