@@ -549,9 +549,7 @@ class TestExportDeck:
         body = response.json()
         assert body["type"] == "/errors/deck-not-found"
 
-    async def test_export_deck_returns_zip_content_type(
-        self, client: AsyncClient, seed_deck: Deck
-    ):
+    async def test_export_deck_returns_zip_content_type(self, client: AsyncClient, seed_deck: Deck):
         """Export returns application/zip content type."""
         response = await client.get(f"/decks/{seed_deck.id}/export")
         assert response.status_code == 200
@@ -566,9 +564,7 @@ class TestExportDeck:
         cd = response.headers.get("content-disposition", "")
         assert ".lingosips" in cd
 
-    async def test_export_deck_zip_contains_deck_json(
-        self, client: AsyncClient, seed_deck: Deck
-    ):
+    async def test_export_deck_zip_contains_deck_json(self, client: AsyncClient, seed_deck: Deck):
         """The downloaded ZIP contains deck.json."""
         import io
         import zipfile

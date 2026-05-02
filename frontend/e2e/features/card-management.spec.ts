@@ -169,10 +169,16 @@ test.describe("Card Management — Card Detail", () => {
 test.describe("Card Image — Story 2.6", () => {
   test.beforeEach(async ({ page }) => {
     await completeOnboarding(page)
+    // Ensure a clean image-credential state before every test in this block.
+    // The dev environment may have an image endpoint persisted in the keyring;
+    // remove it so each test starts from a known baseline.
+    await page.request.delete("http://127.0.0.1:7842/services/credentials/image").catch(() => {
+      /* no-op if not configured — DELETE is idempotent */
+    })
   })
 
   test("image section shows 'not configured' text when no image endpoint set (AC4)", async ({ page }) => {
-    // By default in test env, no IMAGE_ENDPOINT_URL is configured
+    // Image credential was removed in beforeEach, so endpoint is unconfigured.
     const cardId = await createSeedCard(page.request)
     await page.goto(`/cards/${cardId}`)
 

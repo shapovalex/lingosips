@@ -99,9 +99,7 @@ def create_app() -> FastAPI:
         index_html = STATIC_DIR / "index.html"
         accept = request.headers.get("accept", "")
         path = request.url.path
-        is_spa_route = path in _spa_routes_exact or any(
-            p.match(path) for p in _spa_route_patterns
-        )
+        is_spa_route = path in _spa_routes_exact or any(p.match(path) for p in _spa_route_patterns)
         if (
             request.method == "GET"
             and is_spa_route

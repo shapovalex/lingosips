@@ -793,9 +793,7 @@ class TestLingosipsImportStart:
         body = response.json()
         assert body["type"] == "/errors/invalid-lingosips-file"
 
-    async def test_start_duplicate_deck_name_returns_409(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_start_duplicate_deck_name_returns_409(self, client: AsyncClient) -> None:
         file_bytes = _make_lingosips_bytes(deck_name="Conflict Deck Unique3")
         # First import succeeds
         r1 = await client.post(

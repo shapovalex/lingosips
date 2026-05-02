@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { SkipLink, IconSidebar, RightColumn, BottomNav } from "@/components/layout"
 import { OnboardingWizard } from "@/features/onboarding"
+import { QueueWidget } from "@/features/practice"
 import { get } from "@/lib/client"
 import type { components } from "@/lib/api"
 
@@ -95,7 +96,7 @@ function RootLayout() {
         </main>
 
         {/* Right column — 360px fixed on desktop, accordion on mobile */}
-        <RightColumn />
+        <RightColumn><QueueWidget /></RightColumn>
       </div>
 
       {/* BottomNav is fixed-positioned — must be OUTSIDE the h-screen flex container */}

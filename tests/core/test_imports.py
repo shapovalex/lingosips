@@ -642,9 +642,7 @@ class TestRunEnrichment:
             assert "Simulated DB failure" in job.error_message
         await engine.dispose()
 
-    async def test_run_enrichment_inner_except_handles_secondary_db_failure(
-        self, tmp_path
-    ) -> None:
+    async def test_run_enrichment_inner_except_handles_secondary_db_failure(self, tmp_path) -> None:
         """Inner except:pass handles DB failure inside outer except block (lines 415-416)."""
         from unittest.mock import patch
 
@@ -846,9 +844,7 @@ class TestParseLingosipsFile:
     def test_sample_cards_limited_to_five(self) -> None:
         from lingosips.core.imports import parse_lingosips_file
 
-        many_cards = [
-            {"target_word": f"word{i}", "target_language": "es"} for i in range(10)
-        ]
+        many_cards = [{"target_word": f"word{i}", "target_language": "es"} for i in range(10)]
         file_bytes = _make_lingosips_file(cards=many_cards)
         preview = parse_lingosips_file(file_bytes)
         assert preview.total_cards == 10
@@ -905,6 +901,7 @@ class TestImportLingosipsDeck:
         from sqlalchemy import select
 
         from lingosips.db.models import Deck
+
         deck = (await session.execute(select(Deck).where(Deck.id == deck_id))).scalar_one()
         assert deck.name == "Imported Deck"
         assert deck.target_language == "es"
@@ -933,9 +930,7 @@ class TestImportLingosipsDeck:
         file_bytes = _make_lingosips_file(deck_name="FSRS Deck", cards=cards)
         deck_id, _ = await import_lingosips_deck(file_bytes, session)
 
-        result = await session.execute(
-            select(Card).where(Card.deck_id == deck_id)
-        )
+        result = await session.execute(select(Card).where(Card.deck_id == deck_id))
         card = result.scalars().first()
         assert card is not None
         assert card.target_word == "melancólico"
@@ -958,9 +953,7 @@ class TestImportLingosipsDeck:
         with pytest.raises(ValueError, match="valid .lingosips archive"):
             await import_lingosips_deck(b"not a zip", session)
 
-    async def test_import_audio_files_stored_and_url_set(
-        self, session, tmp_path
-    ) -> None:
+    async def test_import_audio_files_stored_and_url_set(self, session, tmp_path) -> None:
         from unittest.mock import patch
 
         from sqlalchemy import select

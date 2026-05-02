@@ -676,9 +676,7 @@ class TestGenerateCardImage:
         await session.refresh(card)
 
         mock_service = AsyncMock()
-        mock_service.generate = AsyncMock(
-            side_effect=RuntimeError("Image endpoint returned 500")
-        )
+        mock_service.generate = AsyncMock(side_effect=RuntimeError("Image endpoint returned 500"))
 
         with pytest.raises(ValueError, match="Image generation failed"):
             await generate_card_image(card.id, mock_service, session)

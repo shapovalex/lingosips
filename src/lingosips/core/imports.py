@@ -120,9 +120,7 @@ def parse_lingosips_file(file_bytes: bytes) -> LingosipsImportPreview:
             raise ValueError(f"deck.json missing required key: {key}")
 
     if raw["format_version"] != "1":
-        raise ValueError(
-            f"Unsupported format_version '{raw['format_version']}'; expected '1'"
-        )
+        raise ValueError(f"Unsupported format_version '{raw['format_version']}'; expected '1'")
 
     deck_data = raw["deck"]
     for key in ("name", "target_language"):
@@ -164,9 +162,7 @@ def parse_lingosips_file(file_bytes: bytes) -> LingosipsImportPreview:
     )
 
 
-async def import_lingosips_deck(
-    file_bytes: bytes, session: AsyncSession
-) -> tuple[int, int]:
+async def import_lingosips_deck(file_bytes: bytes, session: AsyncSession) -> tuple[int, int]:
     """Import a .lingosips archive into the database.
 
     Creates deck + all cards in a single transaction. Audio files are written to disk

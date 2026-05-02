@@ -51,3 +51,13 @@
 - **Session atomicity: `create_deck()` commits before cards are created** — `import_lingosips_deck()` calls `create_deck()` which commits the deck row, then adds cards in the same session. If `session.flush()` or audio writes fail afterward, the deck is committed with no cards (orphaned empty deck). Fixing requires refactoring `create_deck()` to support caller-controlled commit, which changes the interface used by all deck creation paths. Accepted MVP trade-off; all core functions commit eagerly. File: `src/lingosips/core/imports.py:181`, `src/lingosips/core/decks.py:100`
 
 - **409 routing via error message string match** — `start_lingosips_import` routes to 409 by checking `"conflict" in msg.lower()`. Couples HTTP status to internal `ValueError` message content. A more robust approach: create a `DeckConflictError(ValueError)` custom exception in `core/decks.py` and catch it specifically in the router. Not a current correctness issue since no other code path raises `ValueError("conflict")` in this flow. File: `src/lingosips/api/imports.py:241`
+
+## Deferred from: code review of 3-1-fsrs-scheduling-engine-practice-queue (2026-05-01)
+
+- **No rollback on exception in `rate_card`** — If `session.commit()` raises (e.g., DB timeout, FK violation), there is no `try/except/rollback` in `core/fsrs.py`. In practice the SQLAlchemy async session context manager handles rollback at the router level; acceptable for MVP single-process SQLite. File: `src/lingosips/core/fsrs.py`
+
+- **No authorization check on `card_id` ownership in `POST /practice/cards/{card_id}/rate`** — Any caller can rate any card by PK with no ownership or deck membership check. MVP is a single-user local app so this is not a security risk now; add access control if multi-user mode is introduced. File: `src/lingosips/api/practice.py`
+
+- **Queue count in "in-session" status bar can go stale** — `QueueWidget` in-session mode shows `{queue.length} remaining` but the `["practice","queue"]` query is not refetched during a session. The displayed count does not decrement as cards are rated. Epic 3.2 (self-assess session management) owns session-level query invalidation. File: `frontend/src/features/practice/QueueWidget.tsx`
+
+- **`fsrs_card.last_review` timezone coercion not verified** — `db_card.last_review` is set from `fsrs_card.last_review` which the fsrs library assigns internally. No assertion that the returned datetime is timezone-aware. Works with fsrs v6.3.1 in current tests; verify if upgrading the library. File: `src/lingosips/core/fsrs.py`

@@ -167,9 +167,7 @@ class TestGetServiceStatus:
         assert "image" in body
         assert body["image"]["configured"] is False
 
-    async def test_image_field_configured_true_when_endpoint_set(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_image_field_configured_true_when_endpoint_set(self, client: AsyncClient) -> None:
         """image.configured=True when IMAGE_ENDPOINT_URL is set."""
         with patch(_PATCH_TARGET, return_value=_qwen_status(image_configured=True)):
             response = await client.get("/services/status")

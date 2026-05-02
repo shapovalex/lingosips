@@ -733,6 +733,7 @@ class TestGenerateCardImage:
     async def mock_image_service(self):
         """Mock ImageService that returns valid PNG bytes."""
         from unittest.mock import AsyncMock
+
         service = AsyncMock()
         service.generate = AsyncMock(return_value=_PNG_1X1_API)
         return service
@@ -812,9 +813,7 @@ class TestGenerateCardImage:
             app.dependency_overrides.pop(get_image_service, None)
             core_cards_module.IMAGE_DIR = original_dir
 
-    async def test_generate_card_image_timeout(
-        self, client: AsyncClient, seed_card
-    ) -> None:
+    async def test_generate_card_image_timeout(self, client: AsyncClient, seed_card) -> None:
         """ImageService raises TimeoutException → 422 with timeout detail."""
         from unittest.mock import AsyncMock
 
@@ -852,9 +851,7 @@ class TestGenerateCardImage:
         finally:
             app.dependency_overrides.pop(get_image_service, None)
 
-    async def test_generate_card_image_api_error(
-        self, client: AsyncClient, seed_card
-    ) -> None:
+    async def test_generate_card_image_api_error(self, client: AsyncClient, seed_card) -> None:
         """ImageService raises RuntimeError → 422 with error detail."""
         from unittest.mock import AsyncMock
 
@@ -884,9 +881,7 @@ class TestGetCardImage:
             await conn.execute(text("DELETE FROM cards"))
             await conn.execute(text("DELETE FROM settings"))
 
-    async def test_get_card_image_success(
-        self, client: AsyncClient, seed_card, tmp_path
-    ) -> None:
+    async def test_get_card_image_success(self, client: AsyncClient, seed_card, tmp_path) -> None:
         """Image file exists → 200 with image/png content-type."""
         import lingosips.core.cards as core_cards_module
 
@@ -901,6 +896,7 @@ class TestGetCardImage:
 
         # Also patch in api.cards module
         import lingosips.api.cards as api_cards_module
+
         original_api_dir = getattr(api_cards_module, "IMAGE_DIR", None)
         api_cards_module.IMAGE_DIR = image_dir  # type: ignore[attr-defined]
         try:
@@ -924,6 +920,7 @@ class TestGetCardImage:
 
         original_dir = core_cards_module.IMAGE_DIR
         import lingosips.api.cards as api_cards_module
+
         original_api_dir = getattr(api_cards_module, "IMAGE_DIR", None)
         core_cards_module.IMAGE_DIR = empty_dir
         api_cards_module.IMAGE_DIR = empty_dir  # type: ignore[attr-defined]
