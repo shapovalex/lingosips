@@ -76,9 +76,11 @@ type StoreState = {
   sessionState: "idle" | "active" | "complete"
   mode: "self_assess" | "write" | "speak" | null
   currentCardIndex: number
+  sessionCount: number
   startSession: (mode: "self_assess" | "write" | "speak") => void
   endSession: () => void
   nextCard: () => void
+  prevCard: () => void
 }
 
 /**
@@ -98,9 +100,11 @@ function mockIdleStore() {
     sessionState: "idle",
     mode: null,
     currentCardIndex: 0,
+    sessionCount: 0,
     startSession: mockStartSession,
     endSession: vi.fn(),
     nextCard: vi.fn(),
+    prevCard: vi.fn(),
   })
 }
 
@@ -109,9 +113,11 @@ function mockActiveStore() {
     sessionState: "active",
     mode: "self_assess",
     currentCardIndex: 0,
+    sessionCount: 0,
     startSession: mockStartSession,
     endSession: vi.fn(),
     nextCard: vi.fn(),
+    prevCard: vi.fn(),
   })
 }
 
