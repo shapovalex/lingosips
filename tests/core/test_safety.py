@@ -98,3 +98,89 @@ class TestSafetyFilter:
             assert term == "alpha"
         finally:
             safety_module.BLOCKED_TERMS[:] = original
+
+
+@pytest.mark.anyio
+class TestCheckImage:
+    """Tests for check_image() — image safety filter (AC: 2, 3)."""
+
+    def test_valid_png_passes(self) -> None:
+        """check_image('image/png', 1024) → (True, None)."""
+        from lingosips.core.safety import check_image
+
+        is_safe, reason = check_image("image/png", 1024)
+        assert is_safe is True
+        assert reason is None
+
+    def test_valid_jpeg_passes(self) -> None:
+        """check_image('image/jpeg', 1024) → (True, None)."""
+        from lingosips.core.safety import check_image
+
+        is_safe, reason = check_image("image/jpeg", 1024)
+        assert is_safe is True
+        assert reason is None
+
+    def test_non_image_content_type_rejected(self) -> None:
+        """check_image('application/json', 1024) → (False, reason containing 'content-type')."""
+        from lingosips.core.safety import check_image
+
+        is_safe, reason = check_image("application/json", 1024)
+        assert is_safe is False
+        assert reason is not None
+        assert "content-type" in reason
+
+    def test_image_exceeding_10mb_rejected(self) -> None:
+        """check_image('image/png', 11_000_000) → (False, reason containing '10 MB')."""
+        from lingosips.core.safety import check_image
+
+        is_safe, reason = check_image("image/png", 11_000_000)
+        assert is_safe is False
+        assert reason is not None
+        assert "10 MB" in reason
+
+    def test_exactly_10mb_passes(self) -> None:
+        """check_image('image/png', 10_485_760) → (True, None) — boundary: exactly 10 MB is OK."""
+        from lingosips.core.safety import check_image
+
+        is_safe, reason = check_image("image/png", 10_485_760)
+        assert is_safe is True
+        assert reason is None
+
+    def test_one_byte_over_10mb_rejected(self) -> None:
+        """check_image('image/png', 10_485_761) → (False, ...) — one byte over fails."""
+        from lingosips.core.safety import check_image
+
+        is_safe, reason = check_image("image/png", 10_485_761)
+        assert is_safe is False
+        assert reason is not None
+
+
+@pytest.mark.anyio
+class TestDetectImageContentType:
+    """Tests for detect_image_content_type() — magic byte detection."""
+
+    def test_png_magic_bytes_detected(self) -> None:
+        """PNG magic bytes → 'image/png'."""
+        from lingosips.core.safety import detect_image_content_type
+
+        png_magic = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        assert detect_image_content_type(png_magic) == "image/png"
+
+    def test_jpeg_magic_bytes_detected(self) -> None:
+        """JPEG magic bytes → 'image/jpeg'."""
+        from lingosips.core.safety import detect_image_content_type
+
+        jpeg_magic = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+        assert detect_image_content_type(jpeg_magic) == "image/jpeg"
+
+    def test_unknown_bytes_returns_none(self) -> None:
+        """Unrecognized bytes → None."""
+        from lingosips.core.safety import detect_image_content_type
+
+        assert detect_image_content_type(b"not an image at all") is None
+
+    def test_empty_bytes_returns_none(self) -> None:
+        """Empty bytes → None."""
+        from lingosips.core.safety import detect_image_content_type
+
+        assert detect_image_content_type(b"") is None

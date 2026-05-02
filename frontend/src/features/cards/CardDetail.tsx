@@ -13,7 +13,7 @@
 import { useState } from "react"
 import { useNavigate, Link } from "@tanstack/react-router"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { get, patch, del, ApiError } from "@/lib/client"
+import { get, patch, post, del, ApiError } from "@/lib/client"
 import { useAppStore } from "@/lib/stores/useAppStore"
 import { Button } from "@/components/ui/button"
 import {
@@ -59,15 +59,22 @@ interface CardResponse {
   updated_at: string
 }
 
+interface ServiceStatusResponse {
+  llm: { provider: string; model: string | null }
+  speech: { provider: string }
+  image: { configured: boolean }
+}
+
 type CardUpdatePayload = {
   translation?: string | null
   forms?: CardFormsData | null
   example_sentences?: string[] | null
   personal_note?: string | null
   deck_id?: number | null
+  image_skipped?: boolean
 }
 
-type CardDetailState = "viewing" | "confirm-delete" | "deleting"
+type CardDetailState = "viewing" | "confirm-delete" | "deleting" | "image-generating"
 
 // ── FSRS display helper ────────────────────────────────────────────────────────
 
@@ -166,6 +173,13 @@ export function CardDetail({ cardId }: CardDetailProps) {
     queryFn: () => get<CardResponse>(`/cards/${cardId}`),
   })
 
+  const { data: serviceStatus } = useQuery<ServiceStatusResponse>({
+    queryKey: ["services", "status"],
+    queryFn: () => get<ServiceStatusResponse>("/services/status"),
+    staleTime: 30_000, // 30s — endpoint configured status doesn't change often
+  })
+  const imageConfigured = serviceStatus?.image?.configured ?? false
+
   // ── PATCH mutation ─────────────────────────────────────────────────────────
 
   const updateField = useMutation({
@@ -177,6 +191,40 @@ export function CardDetail({ cardId }: CardDetailProps) {
     onError: (err: unknown) => {
       const message =
         err instanceof ApiError ? (err.detail ?? "Failed to save") : "Failed to save"
+      useAppStore.getState().addNotification({ type: "error", message })
+    },
+  })
+
+  // ── Generate image mutation ────────────────────────────────────────────────
+
+  const generateImage = useMutation({
+    mutationFn: () => post<CardResponse>(`/cards/${cardId}/generate-image`, {}),
+    onMutate: () => setState("image-generating"),
+    onSuccess: (updated) => {
+      setState("viewing")
+      queryClient.setQueryData(["cards", cardId], updated)
+    },
+    onError: (err: unknown) => {
+      setState("viewing")
+      const message =
+        err instanceof ApiError
+          ? (err.detail ?? "Image generation failed")
+          : "Image generation failed"
+      useAppStore.getState().addNotification({ type: "error", message })
+    },
+  })
+
+  // ── Skip image mutation ────────────────────────────────────────────────────
+
+  const skipImage = useMutation({
+    mutationFn: (skipped: boolean) =>
+      patch<CardResponse>(`/cards/${cardId}`, { image_skipped: skipped }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["cards", cardId], updated)
+    },
+    onError: (err: unknown) => {
+      const message =
+        err instanceof ApiError ? (err.detail ?? "Failed to update image") : "Failed to update image"
       useAppStore.getState().addNotification({ type: "error", message })
     },
   })
@@ -372,6 +420,74 @@ export function CardDetail({ cardId }: CardDetailProps) {
           />
         </div>
       )}
+
+      {/* Image section */}
+      <div className="border-b border-zinc-800 pb-4 mb-4">
+        <h2 className="text-sm font-medium text-zinc-300 uppercase tracking-wide mb-2">Image</h2>
+
+        {/* Show existing image */}
+        {card.image_url && (
+          <img
+            src={card.image_url}
+            alt={`Visual for ${card.target_word}`}
+            className="rounded-md mb-2 max-h-48 object-contain"
+          />
+        )}
+
+        {/* Skipped state */}
+        {card.image_skipped && !card.image_url && (
+          <div className="flex items-center gap-2 text-sm text-zinc-400">
+            <span>Image skipped</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => skipImage.mutate(false)}
+              aria-label="Undo skip image"
+            >
+              Undo
+            </Button>
+          </div>
+        )}
+
+        {/* Not configured — shown whenever endpoint is absent, regardless of existing image */}
+        {!imageConfigured && !card.image_skipped && (
+          <p className="text-sm text-zinc-500">
+            Image endpoint not configured ·{" "}
+            <Link to="/settings" className="text-indigo-400 hover:text-indigo-300 underline">
+              Configure in Settings
+            </Link>
+          </p>
+        )}
+
+        {/* Action buttons — only if configured and not skipped */}
+        {imageConfigured && !card.image_skipped && (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => generateImage.mutate()}
+              disabled={state === "image-generating"}
+              aria-label={card.image_url ? "Regenerate image" : "Add image"}
+            >
+              {state === "image-generating"
+                ? "Generating..."
+                : card.image_url
+                  ? "Regenerate"
+                  : "Add image"}
+            </Button>
+            {/* Skip shown whenever there is no existing skip — clears image_url if present (AC5) */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => skipImage.mutate(true)}
+              disabled={state === "image-generating" || skipImage.isPending}
+              aria-label="Skip image generation for this card"
+            >
+              {skipImage.isPending ? "Skipping..." : "Skip image"}
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/* Personal Note */}
       <div className="pb-4 mb-4">

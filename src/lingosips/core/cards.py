@@ -9,7 +9,9 @@ import json
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+import httpx
 import structlog
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
@@ -20,10 +22,22 @@ from lingosips.db.models import Card
 from lingosips.services.llm.base import AbstractLLMProvider, LLMMessage
 from lingosips.services.speech.base import AbstractSpeechProvider
 
+if TYPE_CHECKING:
+    from lingosips.services.image import ImageService
+
 logger = structlog.get_logger(__name__)
 
 AUDIO_DIR = Path.home() / ".lingosips" / "audio"
 AUDIO_SYNTHESIS_TIMEOUT = 30.0  # seconds — generous for slow local TTS
+
+IMAGE_DIR = Path.home() / ".lingosips" / "images"
+
+_CONTENT_TYPE_EXT: dict[str, str] = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
 
 
 # ── Request model ─────────────────────────────────────────────────────────────
@@ -298,10 +312,69 @@ async def update_card(
     if "example_sentences" in update_data:
         es_val = update_data["example_sentences"]
         card.example_sentences = json.dumps(es_val) if es_val is not None else None
+    if "image_skipped" in update_data:
+        card.image_skipped = update_data["image_skipped"]
+        if update_data["image_skipped"]:
+            card.image_url = None  # clear image when skipped
+    if "image_url" in update_data:
+        card.image_url = update_data["image_url"]
 
     card.updated_at = datetime.now(UTC)
     await session.commit()
     await session.refresh(card)
+    return card
+
+
+async def generate_card_image(
+    card_id: int,
+    image_service: "ImageService",
+    session: AsyncSession,
+) -> Card:
+    """Generate and store an image for a card.
+
+    Raises ValueError on safety rejection, timeout, or API error.
+    Never modifies card if generation fails — card stays intact.
+    """
+    card = await get_card(card_id, session)  # raises ValueError if not found
+
+    try:
+        image_bytes = await image_service.generate(card.target_word)
+    except httpx.TimeoutException:
+        logger.warning("cards.image_generation_timeout", card_id=card_id)
+        raise ValueError("Image generation timed out — please try again")
+    except RuntimeError as exc:
+        logger.warning("cards.image_generation_error", card_id=card_id, exc=str(exc))
+        raise ValueError(f"Image generation failed: {exc}")
+
+    # Safety check — detect content type from magic bytes
+    content_type = safety.detect_image_content_type(image_bytes) or "application/octet-stream"
+    is_safe, reason = safety.check_image(content_type, len(image_bytes))
+    if not is_safe:
+        logger.warning("cards.image_safety_rejected", card_id=card_id, reason=reason)
+        raise ValueError("Image filtered — please try again")
+
+    # Store image — delete stale files from prior generations with different extensions
+    ext = _CONTENT_TYPE_EXT.get(content_type, "png")
+    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    for stale_ext in _CONTENT_TYPE_EXT.values():
+        if stale_ext != ext:
+            stale_path = IMAGE_DIR / f"{card_id}.{stale_ext}"
+            await asyncio.to_thread(stale_path.unlink, True)  # missing_ok=True
+
+    image_path = IMAGE_DIR / f"{card_id}.{ext}"
+    await asyncio.to_thread(image_path.write_bytes, image_bytes)
+
+    try:
+        card.image_url = f"/cards/{card_id}/image"
+        card.image_skipped = False  # generation success clears any prior skip
+        card.updated_at = datetime.now(UTC)
+        await session.commit()
+    except Exception:
+        # Clean up the written file if the DB commit fails to avoid orphaned files
+        await asyncio.to_thread(image_path.unlink, True)
+        raise
+    await session.refresh(card)
+    logger.info("cards.image_generated", card_id=card_id, size=len(image_bytes), ext=ext)
     return card
 
 

@@ -3,9 +3,11 @@
 Router only — no business logic. Delegates to core.cards.*().
 """
 
+import asyncio
 import json
 from collections.abc import AsyncGenerator
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse, StreamingResponse
@@ -14,11 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lingosips.core import cards as core_cards
 from lingosips.core import settings as core_settings
-from lingosips.core.cards import AUDIO_DIR, CardCreateRequest
+from lingosips.core.cards import AUDIO_DIR, IMAGE_DIR, CardCreateRequest
 from lingosips.db.models import Card
 from lingosips.db.session import get_session
+from lingosips.services.image import ImageService
 from lingosips.services.llm.base import AbstractLLMProvider
-from lingosips.services.registry import get_llm_provider, get_speech_provider
+from lingosips.services.registry import get_image_service, get_llm_provider, get_speech_provider
 from lingosips.services.speech.base import AbstractSpeechProvider
 
 router = APIRouter()
@@ -73,6 +76,7 @@ class CardUpdateRequest(BaseModel):
     example_sentences: list[str] | None = None
     personal_note: str | None = Field(default=None, max_length=5000)
     deck_id: int | None = None
+    image_skipped: bool | None = None
 
 
 # ── Response conversion helper ────────────────────────────────────────────────
@@ -233,6 +237,8 @@ async def patch_card(
         update_data["forms"] = request.forms.model_dump() if request.forms else None
     if "example_sentences" in request.model_fields_set:
         update_data["example_sentences"] = request.example_sentences
+    if "image_skipped" in request.model_fields_set:
+        update_data["image_skipped"] = request.image_skipped
 
     try:
         card = await core_cards.update_card(card_id, update_data, session)
@@ -247,6 +253,77 @@ async def patch_card(
             },
         )
     return _card_to_response(card)
+
+
+@router.post("/{card_id}/generate-image", response_model=CardResponse)
+async def generate_card_image_endpoint(
+    card_id: int,
+    session: AsyncSession = Depends(get_session),
+    image_service: ImageService = Depends(get_image_service),
+) -> CardResponse:
+    """Trigger image generation for a card.
+
+    422 if endpoint not configured (Depends raises before handler runs).
+    422 on safety rejection, timeout, or API error.
+    404 RFC 7807 if card does not exist.
+    """
+    try:
+        card = await core_cards.generate_card_image(card_id, image_service, session)
+    except ValueError as exc:
+        msg = str(exc)
+        if "does not exist" in msg:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "type": "/errors/card-not-found",
+                    "title": "Card not found",
+                    "detail": msg,
+                    "status": 404,
+                },
+            )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "type": "/errors/image-generation-failed",
+                "title": "Image generation failed",
+                "detail": msg,
+                "status": 422,
+            },
+        )
+    return _card_to_response(card)
+
+
+@router.get("/{card_id}/image")
+async def get_card_image(card_id: int) -> FileResponse:
+    """Serve stored image for a card.
+
+    Returns the image file from the local images directory.
+    404 RFC 7807 if no image file exists for this card.
+    Does NOT require a DB session — image presence is determined by file existence.
+    """
+
+    def _find_image_file() -> tuple[Path, str] | None:
+        # Note: "jpeg" omitted — _CONTENT_TYPE_EXT always writes ".jpg", never ".jpeg"
+        for ext in ("png", "jpg", "gif", "webp"):
+            path = IMAGE_DIR / f"{card_id}.{ext}"
+            if path.exists():
+                media_type = f"image/{'jpeg' if ext == 'jpg' else ext}"
+                return path, media_type
+        return None
+
+    result = await asyncio.to_thread(_find_image_file)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "type": "/errors/image-not-found",
+                "title": "Image not found",
+                "detail": f"No image file for card {card_id}",
+                "status": 404,
+            },
+        )
+    image_path, media_type = result
+    return FileResponse(image_path, media_type=media_type)
 
 
 @router.delete("/{card_id}", status_code=204)

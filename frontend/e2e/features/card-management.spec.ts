@@ -163,3 +163,84 @@ test.describe("Card Management — Card Detail", () => {
     await expect(focusedEl).toBeVisible()
   })
 })
+
+// ── Story 2.6: Image section E2E tests ───────────────────────────────────────
+
+test.describe("Card Image — Story 2.6", () => {
+  test.beforeEach(async ({ page }) => {
+    await completeOnboarding(page)
+  })
+
+  test("image section shows 'not configured' text when no image endpoint set (AC4)", async ({ page }) => {
+    // By default in test env, no IMAGE_ENDPOINT_URL is configured
+    const cardId = await createSeedCard(page.request)
+    await page.goto(`/cards/${cardId}`)
+
+    await page.getByRole("heading", { name: "prueba" }).waitFor({ timeout: 5000 })
+
+    // Image section should show "not configured" text
+    await expect(page.getByText(/image endpoint not configured/i)).toBeVisible({ timeout: 3000 })
+  })
+
+  test("skip image sets image_skipped state and shows Undo (AC5)", async ({ page }) => {
+    // Configure image endpoint for this test via API
+    await page.request.post("http://localhost:7842/services/credentials", {
+      data: { image_endpoint_url: "http://localhost:9999/nonexistent" },
+    })
+
+    const cardId = await createSeedCard(page.request)
+    await page.goto(`/cards/${cardId}`)
+
+    await page.getByRole("heading", { name: "prueba" }).waitFor({ timeout: 5000 })
+
+    // Skip image button should appear when endpoint is configured
+    const skipBtn = page.getByRole("button", { name: /skip image/i })
+    await skipBtn.waitFor({ timeout: 3000 })
+    await skipBtn.click()
+
+    // "Image skipped" state should appear
+    await expect(page.getByText(/image skipped/i)).toBeVisible({ timeout: 3000 })
+    await expect(page.getByRole("button", { name: /undo/i })).toBeVisible()
+
+    // API should have image_skipped=true
+    const apiResponse = await page.request.get(`http://localhost:7842/cards/${cardId}`)
+    const cardData = await apiResponse.json()
+    expect(cardData.image_skipped).toBe(true)
+    expect(cardData.image_url).toBeNull()
+
+    // Clean up: remove image credential
+    await page.request.delete("http://localhost:7842/services/credentials/image")
+  })
+
+  test("undo skip returns to Add image button (AC5)", async ({ page }) => {
+    // Configure image endpoint for this test
+    await page.request.post("http://localhost:7842/services/credentials", {
+      data: { image_endpoint_url: "http://localhost:9999/nonexistent" },
+    })
+
+    const cardId = await createSeedCard(page.request)
+    await page.goto(`/cards/${cardId}`)
+
+    await page.getByRole("heading", { name: "prueba" }).waitFor({ timeout: 5000 })
+
+    // Skip first
+    const skipBtn = page.getByRole("button", { name: /skip image/i })
+    await skipBtn.waitFor({ timeout: 3000 })
+    await skipBtn.click()
+    await expect(page.getByRole("button", { name: /undo/i })).toBeVisible({ timeout: 3000 })
+
+    // Undo
+    await page.getByRole("button", { name: /undo/i }).click()
+
+    // Should show Add image button again
+    await expect(page.getByRole("button", { name: /add image/i })).toBeVisible({ timeout: 3000 })
+
+    // API should have image_skipped=false
+    const apiResponse = await page.request.get(`http://localhost:7842/cards/${cardId}`)
+    const cardData = await apiResponse.json()
+    expect(cardData.image_skipped).toBe(false)
+
+    // Clean up
+    await page.request.delete("http://localhost:7842/services/credentials/image")
+  })
+})

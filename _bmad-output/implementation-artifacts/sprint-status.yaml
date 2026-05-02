@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-29
-last_updated: 2026-05-01  # updated by code-review agent (story 2.5 done)
+last_updated: 2026-05-01  # updated by dev-story agent (story 2.6 complete → review)
 project: lingosips
 project_key: NOKEY
 tracking_system: file-system
@@ -63,7 +63,7 @@ development_status:
   2-3-service-configuration-system-defaults: review
   2-4-import-pipeline-anki-text-url: review
   2-5-deck-export-import-lingosips-format: done
-  2-6-per-card-image-generation: backlog
+  2-6-per-card-image-generation: review
   epic-2-retrospective: optional
 
   # Epic 3: Practice Loop & Progress Tracking

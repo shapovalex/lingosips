@@ -14,6 +14,8 @@ from fastapi import HTTPException
 from lingosips.services.credentials import (
     AZURE_SPEECH_KEY,
     AZURE_SPEECH_REGION,
+    IMAGE_ENDPOINT_KEY,
+    IMAGE_ENDPOINT_URL,
     OPENROUTER_API_KEY,
     OPENROUTER_MODEL,
     get_credential,
@@ -40,6 +42,7 @@ class ServiceStatusInfo:
     last_llm_success_at: str | None = None  # reserved — not tracked yet
     last_speech_latency_ms: float | None = None  # reserved — not tracked yet
     last_speech_success_at: str | None = None  # reserved — not tracked yet
+    image_endpoint_configured: bool = False  # True when IMAGE_ENDPOINT_URL is set in keyring
 
 
 DEFAULT_OPENROUTER_MODEL = "openai/gpt-4o-mini"  # fallback when key set but model not configured
@@ -67,14 +70,21 @@ def get_service_status_info() -> ServiceStatusInfo:
         azure_region = get_credential(AZURE_SPEECH_REGION)
         speech_provider = "azure" if (azure_key and azure_region) else "pyttsx3"
 
+        image_url = get_credential(IMAGE_ENDPOINT_URL)
+        image_endpoint_configured = bool(image_url)
+
         logger.debug(
-            "service_status_info", llm_provider=llm_provider, speech_provider=speech_provider
+            "service_status_info",
+            llm_provider=llm_provider,
+            speech_provider=speech_provider,
+            image_endpoint_configured=image_endpoint_configured,
         )
 
         return ServiceStatusInfo(
             llm_provider=llm_provider,
             llm_model=llm_model,
             speech_provider=speech_provider,
+            image_endpoint_configured=image_endpoint_configured,
         )
     except Exception:
         # Defensive fallback — credential errors must never surface to callers
@@ -83,6 +93,7 @@ def get_service_status_info() -> ServiceStatusInfo:
             llm_provider="qwen_local",
             llm_model=None,
             speech_provider="pyttsx3",
+            image_endpoint_configured=False,
         )
 
 
@@ -162,3 +173,26 @@ def get_speech_provider() -> AbstractSpeechProvider:
         _pyttsx3_provider = Pyttsx3Provider()
 
     return _pyttsx3_provider
+
+
+def get_image_service() -> "ImageService":  # type: ignore[return]  # noqa: F821
+    """Return ImageService if image endpoint is configured.
+
+    Raises HTTP 422 RFC 7807 if IMAGE_ENDPOINT_URL is not set in keyring.
+    Used exclusively via FastAPI Depends(get_image_service) in api/ routers.
+    """
+    from lingosips.services.image import ImageService
+
+    endpoint_url = get_credential(IMAGE_ENDPOINT_URL)
+    if not endpoint_url:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "type": "/errors/image-endpoint-not-configured",
+                "title": "Image endpoint not configured",
+                "detail": "Configure an image generation endpoint in Settings to use this feature",
+                "status": 422,
+            },
+        )
+    api_key = get_credential(IMAGE_ENDPOINT_KEY)
+    return ImageService(endpoint_url=endpoint_url, api_key=api_key)

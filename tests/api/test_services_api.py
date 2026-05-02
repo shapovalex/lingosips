@@ -17,12 +17,13 @@ from lingosips.services.credentials import (
 from lingosips.services.registry import ServiceStatusInfo
 
 
-def _qwen_status() -> ServiceStatusInfo:
+def _qwen_status(image_configured: bool = False) -> ServiceStatusInfo:
     """Helper: ServiceStatusInfo for qwen_local + pyttsx3."""
     return ServiceStatusInfo(
         llm_provider="qwen_local",
         llm_model=None,
         speech_provider="pyttsx3",
+        image_endpoint_configured=image_configured,
     )
 
 
@@ -32,6 +33,7 @@ def _openrouter_status(model: str = "openai/gpt-4o-mini") -> ServiceStatusInfo:
         llm_provider="openrouter",
         llm_model=model,
         speech_provider="pyttsx3",
+        image_endpoint_configured=False,
     )
 
 
@@ -41,6 +43,7 @@ def _azure_status() -> ServiceStatusInfo:
         llm_provider="qwen_local",
         llm_model=None,
         speech_provider="azure",
+        image_endpoint_configured=False,
     )
 
 
@@ -116,8 +119,9 @@ class TestGetServiceStatus:
         # Response must have exactly 'llm' and 'speech' top-level keys (no wrapper envelope)
         assert "llm" in body
         assert "speech" in body
+        assert "image" in body
         # No extra wrapper keys
-        assert set(body.keys()) == {"llm", "speech"}
+        assert set(body.keys()) == {"llm", "speech", "image"}
 
     async def test_response_shape_matches_rfc7807_not_wrapped(self, client: AsyncClient) -> None:
         """Response is direct model — no 'data' wrapper envelope."""
@@ -150,6 +154,28 @@ class TestGetServiceStatus:
         assert "provider" in speech
         assert "last_latency_ms" in speech
         assert "last_success_at" in speech
+
+    async def test_image_field_present_with_configured_false_by_default(
+        self, client: AsyncClient
+    ) -> None:
+        """image.configured=False when no image endpoint set."""
+        with patch(_PATCH_TARGET, return_value=_qwen_status(image_configured=False)):
+            response = await client.get("/services/status")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert "image" in body
+        assert body["image"]["configured"] is False
+
+    async def test_image_field_configured_true_when_endpoint_set(
+        self, client: AsyncClient
+    ) -> None:
+        """image.configured=True when IMAGE_ENDPOINT_URL is set."""
+        with patch(_PATCH_TARGET, return_value=_qwen_status(image_configured=True)):
+            response = await client.get("/services/status")
+
+        assert response.status_code == 200
+        assert response.json()["image"]["configured"] is True
 
 
 # ── TestConnectionTest ────────────────────────────────────────────────────────

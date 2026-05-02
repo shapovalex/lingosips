@@ -37,3 +37,52 @@ def check_text(text: str) -> tuple[bool, str | None]:
             return False, term
 
     return True, None
+
+
+# ── Image safety ──────────────────────────────────────────────────────────────
+
+MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Magic byte signatures for supported image formats.
+# Each entry: (prefix_bytes, secondary_bytes_or_None, secondary_offset_or_None, content_type)
+_IMAGE_MAGIC: list[tuple[bytes, bytes | None, int | None, str]] = [
+    (b"\x89PNG\r\n\x1a\n", None, None, "image/png"),
+    (b"\xff\xd8", None, None, "image/jpeg"),
+    (b"GIF87a", None, None, "image/gif"),
+    (b"GIF89a", None, None, "image/gif"),
+    (b"RIFF", b"WEBP", 8, "image/webp"),
+]
+
+
+def detect_image_content_type(data: bytes) -> str | None:
+    """Detect image content-type from magic bytes. Returns None if unrecognized."""
+    for prefix, secondary_bytes, secondary_offset, content_type in _IMAGE_MAGIC:
+        if data[: len(prefix)] == prefix:
+            if secondary_bytes is not None and secondary_offset is not None:
+                # Secondary check required (e.g. WebP: RIFF + WEBP at offset 8)
+                sec_end = secondary_offset + len(secondary_bytes)
+                if data[secondary_offset:sec_end] == secondary_bytes:
+                    return content_type
+                continue  # Primary prefix matched but secondary check failed
+            return content_type
+    return None
+
+
+def check_image(content_type: str, size_bytes: int) -> tuple[bool, str | None]:
+    """Check whether image data is safe to display.
+
+    Returns:
+        (True, None) if image passes all safety checks
+        (False, reason) if image fails any check
+
+    Note: content_type should be detected from magic bytes (not HTTP headers)
+    using detect_image_content_type() before calling this function.
+    The text keyword/pattern blocklist does NOT apply to image binaries.
+    """
+    if not content_type.startswith("image/"):
+        logger.warning("safety.image_invalid_content_type", content_type=content_type)
+        return False, "content-type must be image/*"
+    if size_bytes > MAX_IMAGE_SIZE_BYTES:
+        logger.warning("safety.image_too_large", size_bytes=size_bytes)
+        return False, f"image exceeds 10 MB ({size_bytes} bytes)"
+    return True, None

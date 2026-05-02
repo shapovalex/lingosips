@@ -706,3 +706,286 @@ class TestDeleteCard:
         assert queue_resp2.status_code == 200
         queue_ids2 = [c["id"] for c in queue_resp2.json()]
         assert card.id not in queue_ids2
+
+
+# ── Image generation endpoints ────────────────────────────────────────────────
+
+# Minimal valid 1×1 PNG bytes
+_PNG_1X1_API = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+    b"\x00\x11\x00\x01n\xfe\xc5S\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+@pytest.mark.anyio
+class TestGenerateCardImage:
+    """Tests for POST /cards/{card_id}/generate-image — AC: 1, 2, 3, 6."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_cards(self, test_engine) -> None:
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM reviews"))
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    @pytest.fixture
+    async def mock_image_service(self):
+        """Mock ImageService that returns valid PNG bytes."""
+        from unittest.mock import AsyncMock
+        service = AsyncMock()
+        service.generate = AsyncMock(return_value=_PNG_1X1_API)
+        return service
+
+    async def test_generate_card_image_success(
+        self, client: AsyncClient, seed_card, mock_image_service, tmp_path
+    ) -> None:
+        """Configured ImageService + PNG bytes → 200, image_url in response."""
+        import lingosips.core.cards as core_cards_module
+        from lingosips.api.app import app
+        from lingosips.services.registry import get_image_service
+
+        original_dir = core_cards_module.IMAGE_DIR
+        core_cards_module.IMAGE_DIR = tmp_path / "images"
+        app.dependency_overrides[get_image_service] = lambda: mock_image_service
+        try:
+            resp = await client.post(f"/cards/{seed_card.id}/generate-image")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["image_url"] == f"/cards/{seed_card.id}/image"
+        finally:
+            app.dependency_overrides.pop(get_image_service, None)
+            core_cards_module.IMAGE_DIR = original_dir
+
+    async def test_generate_card_image_endpoint_not_configured(
+        self, client: AsyncClient, seed_card
+    ) -> None:
+        """No IMAGE_ENDPOINT_URL credential → 422, type /errors/image-endpoint-not-configured."""
+        # Don't override get_image_service — it will raise 422 since no credential is set
+        from fastapi import HTTPException
+
+        from lingosips.api.app import app
+        from lingosips.services.registry import get_image_service
+
+        def _raise_not_configured():
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "type": "/errors/image-endpoint-not-configured",
+                    "title": "Image endpoint not configured",
+                    "detail": "Configure an image generation endpoint in Settings",
+                    "status": 422,
+                },
+            )
+
+        app.dependency_overrides[get_image_service] = _raise_not_configured
+        try:
+            resp = await client.post(f"/cards/{seed_card.id}/generate-image")
+            assert resp.status_code == 422
+            body = resp.json()
+            assert body["type"] == "/errors/image-endpoint-not-configured"
+        finally:
+            app.dependency_overrides.pop(get_image_service, None)
+
+    async def test_generate_card_image_safety_rejected(
+        self, client: AsyncClient, seed_card, tmp_path
+    ) -> None:
+        """ImageService returns non-image bytes → 422 with 'Image filtered' message."""
+        from unittest.mock import AsyncMock
+
+        import lingosips.core.cards as core_cards_module
+        from lingosips.api.app import app
+        from lingosips.services.registry import get_image_service
+
+        bad_service = AsyncMock()
+        bad_service.generate = AsyncMock(return_value=b"not an image")
+
+        original_dir = core_cards_module.IMAGE_DIR
+        core_cards_module.IMAGE_DIR = tmp_path / "images"
+        app.dependency_overrides[get_image_service] = lambda: bad_service
+        try:
+            resp = await client.post(f"/cards/{seed_card.id}/generate-image")
+            assert resp.status_code == 422
+            body = resp.json()
+            assert "Image filtered" in body.get("detail", "")
+        finally:
+            app.dependency_overrides.pop(get_image_service, None)
+            core_cards_module.IMAGE_DIR = original_dir
+
+    async def test_generate_card_image_timeout(
+        self, client: AsyncClient, seed_card
+    ) -> None:
+        """ImageService raises TimeoutException → 422 with timeout detail."""
+        from unittest.mock import AsyncMock
+
+        import httpx as _httpx
+
+        from lingosips.api.app import app
+        from lingosips.services.registry import get_image_service
+
+        timeout_service = AsyncMock()
+        timeout_service.generate = AsyncMock(side_effect=_httpx.TimeoutException("timed out"))
+
+        app.dependency_overrides[get_image_service] = lambda: timeout_service
+        try:
+            resp = await client.post(f"/cards/{seed_card.id}/generate-image")
+            assert resp.status_code == 422
+            body = resp.json()
+            detail_lower = body.get("detail", "").lower()
+            assert "timeout" in detail_lower or "timed out" in detail_lower
+        finally:
+            app.dependency_overrides.pop(get_image_service, None)
+
+    async def test_generate_card_image_card_not_found(
+        self, client: AsyncClient, mock_image_service
+    ) -> None:
+        """card_id=9999 → 404 RFC 7807."""
+        from lingosips.api.app import app
+        from lingosips.services.registry import get_image_service
+
+        app.dependency_overrides[get_image_service] = lambda: mock_image_service
+        try:
+            resp = await client.post("/cards/9999/generate-image")
+            assert resp.status_code == 404
+            body = resp.json()
+            assert body["type"] == "/errors/card-not-found"
+        finally:
+            app.dependency_overrides.pop(get_image_service, None)
+
+    async def test_generate_card_image_api_error(
+        self, client: AsyncClient, seed_card
+    ) -> None:
+        """ImageService raises RuntimeError → 422 with error detail."""
+        from unittest.mock import AsyncMock
+
+        from lingosips.api.app import app
+        from lingosips.services.registry import get_image_service
+
+        error_service = AsyncMock()
+        error_service.generate = AsyncMock(side_effect=RuntimeError("Image endpoint returned 503"))
+
+        app.dependency_overrides[get_image_service] = lambda: error_service
+        try:
+            resp = await client.post(f"/cards/{seed_card.id}/generate-image")
+            assert resp.status_code == 422
+            body = resp.json()
+            assert "Image generation failed" in body.get("detail", "")
+        finally:
+            app.dependency_overrides.pop(get_image_service, None)
+
+
+@pytest.mark.anyio
+class TestGetCardImage:
+    """Tests for GET /cards/{card_id}/image — AC: 7."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_cards(self, test_engine) -> None:
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    async def test_get_card_image_success(
+        self, client: AsyncClient, seed_card, tmp_path
+    ) -> None:
+        """Image file exists → 200 with image/png content-type."""
+        import lingosips.core.cards as core_cards_module
+
+        image_dir = tmp_path / "images"
+        image_dir.mkdir()
+        image_file = image_dir / f"{seed_card.id}.png"
+        image_file.write_bytes(_PNG_1X1_API)
+
+        # Patch IMAGE_DIR in core.cards so the endpoint uses our tmp dir
+        original_dir = core_cards_module.IMAGE_DIR
+        core_cards_module.IMAGE_DIR = image_dir
+
+        # Also patch in api.cards module
+        import lingosips.api.cards as api_cards_module
+        original_api_dir = getattr(api_cards_module, "IMAGE_DIR", None)
+        api_cards_module.IMAGE_DIR = image_dir  # type: ignore[attr-defined]
+        try:
+            resp = await client.get(f"/cards/{seed_card.id}/image")
+            assert resp.status_code == 200
+            assert "image/" in resp.headers.get("content-type", "")
+        finally:
+            core_cards_module.IMAGE_DIR = original_dir
+            if original_api_dir is not None:
+                api_cards_module.IMAGE_DIR = original_api_dir  # type: ignore[attr-defined]
+
+    async def test_get_card_image_not_found(self, client: AsyncClient, seed_card) -> None:
+        """No image file → 404 RFC 7807."""
+        from pathlib import Path
+
+        import lingosips.core.cards as core_cards_module
+
+        # Point IMAGE_DIR at a directory that won't have any image
+        empty_dir = Path("/tmp/lingosips_test_empty_images_xyz")
+        empty_dir.mkdir(exist_ok=True)
+
+        original_dir = core_cards_module.IMAGE_DIR
+        import lingosips.api.cards as api_cards_module
+        original_api_dir = getattr(api_cards_module, "IMAGE_DIR", None)
+        core_cards_module.IMAGE_DIR = empty_dir
+        api_cards_module.IMAGE_DIR = empty_dir  # type: ignore[attr-defined]
+        try:
+            resp = await client.get(f"/cards/{seed_card.id}/image")
+            assert resp.status_code == 404
+            body = resp.json()
+            assert body["type"] == "/errors/image-not-found"
+        finally:
+            core_cards_module.IMAGE_DIR = original_dir
+            if original_api_dir is not None:
+                api_cards_module.IMAGE_DIR = original_api_dir  # type: ignore[attr-defined]
+
+
+@pytest.mark.anyio
+class TestPatchCardImageSkipped:
+    """Tests for PATCH /cards/{card_id} with image_skipped — AC: 5."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_cards(self, test_engine) -> None:
+        async with test_engine.begin() as conn:
+            await conn.execute(text("DELETE FROM reviews"))
+            await conn.execute(text("DELETE FROM cards"))
+            await conn.execute(text("DELETE FROM settings"))
+
+    async def test_patch_card_image_skipped_true(
+        self, client: AsyncClient, session: AsyncSession
+    ) -> None:
+        """PATCH with {image_skipped: true} → 200, image_skipped=true, image_url=null."""
+        from lingosips.db.models import Card
+
+        card = Card(
+            target_word="test",
+            target_language="es",
+            image_url="/cards/1/image",
+        )
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+
+        resp = await client.patch(f"/cards/{card.id}", json={"image_skipped": True})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["image_skipped"] is True
+        assert data["image_url"] is None
+
+    async def test_patch_card_image_skipped_false_undo(
+        self, client: AsyncClient, session: AsyncSession
+    ) -> None:
+        """PATCH with {image_skipped: false} → 200, image_skipped=false."""
+        from lingosips.db.models import Card
+
+        card = Card(
+            target_word="test",
+            target_language="es",
+            image_skipped=True,
+        )
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+
+        resp = await client.patch(f"/cards/{card.id}", json={"image_skipped": False})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["image_skipped"] is False

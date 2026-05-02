@@ -585,3 +585,151 @@ class TestCardCreateRequest:
 
         req = CardCreateRequest(target_word="x" * 500)
         assert len(req.target_word) == 500
+
+
+# ── Image generation tests ────────────────────────────────────────────────────
+
+# Minimal valid 1×1 PNG bytes
+_PNG_1X1 = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+    b"\x00\x11\x00\x01n\xfe\xc5S\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+@pytest.mark.anyio
+class TestGenerateCardImage:
+    """Tests for generate_card_image() in core/cards.py — AC: 2, 5, 6."""
+
+    async def test_generate_card_image_success(self, session, tmp_path) -> None:
+        """Mock ImageService returns PNG bytes → card.image_url set, file written."""
+        import shutil
+
+        import lingosips.core.cards as core_cards_module
+        from lingosips.core.cards import generate_card_image
+        from lingosips.db.models import Card
+
+        # Seed a card
+        card = Card(target_word="melancólico", target_language="es")
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+
+        mock_service = AsyncMock()
+        mock_service.generate = AsyncMock(return_value=_PNG_1X1)
+
+        tmp_image_dir = tmp_path / "images"
+        original_dir = core_cards_module.IMAGE_DIR
+        core_cards_module.IMAGE_DIR = tmp_image_dir
+        try:
+            result = await generate_card_image(card.id, mock_service, session)
+            assert result.image_url == f"/cards/{card.id}/image"
+            assert result.image_skipped is False
+            image_file = tmp_image_dir / f"{card.id}.png"
+            assert image_file.exists()
+        finally:
+            core_cards_module.IMAGE_DIR = original_dir
+            shutil.rmtree(tmp_image_dir, ignore_errors=True)
+
+    async def test_generate_card_image_safety_rejected_non_image_bytes(self, session) -> None:
+        """Mock ImageService returns non-image bytes → raises ValueError('Image filtered')."""
+        from lingosips.core.cards import generate_card_image
+        from lingosips.db.models import Card
+
+        card = Card(target_word="test", target_language="es")
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+
+        mock_service = AsyncMock()
+        mock_service.generate = AsyncMock(return_value=b"not an image at all")
+
+        with pytest.raises(ValueError, match="Image filtered"):
+            await generate_card_image(card.id, mock_service, session)
+
+    async def test_generate_card_image_timeout(self, session) -> None:
+        """Mock ImageService raises httpx.TimeoutException → ValueError with timeout message."""
+        import httpx
+
+        from lingosips.core.cards import generate_card_image
+        from lingosips.db.models import Card
+
+        card = Card(target_word="test", target_language="es")
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+
+        mock_service = AsyncMock()
+        mock_service.generate = AsyncMock(side_effect=httpx.TimeoutException("timed out"))
+
+        with pytest.raises(ValueError, match="timed out|timeout"):
+            await generate_card_image(card.id, mock_service, session)
+
+    async def test_generate_card_image_api_error(self, session) -> None:
+        """Mock ImageService raises RuntimeError → ValueError with error message."""
+        from lingosips.core.cards import generate_card_image
+        from lingosips.db.models import Card
+
+        card = Card(target_word="test", target_language="es")
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+
+        mock_service = AsyncMock()
+        mock_service.generate = AsyncMock(
+            side_effect=RuntimeError("Image endpoint returned 500")
+        )
+
+        with pytest.raises(ValueError, match="Image generation failed"):
+            await generate_card_image(card.id, mock_service, session)
+
+    async def test_generate_card_image_card_not_found(self, session) -> None:
+        """Card ID 9999 not found → ValueError."""
+        from lingosips.core.cards import generate_card_image
+
+        mock_service = AsyncMock()
+        with pytest.raises(ValueError, match="does not exist"):
+            await generate_card_image(9999, mock_service, session)
+
+
+@pytest.mark.anyio
+class TestUpdateCardImageFields:
+    """Tests for update_card() image_skipped and image_url handling — AC: 5."""
+
+    async def test_update_card_image_skipped_true_clears_image_url(self, session) -> None:
+        """update_card() with image_skipped=True clears image_url."""
+        from lingosips.core.cards import update_card
+        from lingosips.db.models import Card
+
+        card = Card(
+            target_word="test",
+            target_language="es",
+            image_url="/cards/1/image",
+        )
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+
+        result = await update_card(card.id, {"image_skipped": True}, session)
+        assert result.image_skipped is True
+        assert result.image_url is None
+
+    async def test_update_card_image_skipped_false_leaves_image_url_unchanged(
+        self, session
+    ) -> None:
+        """update_card() with image_skipped=False does NOT clear image_url."""
+        from lingosips.core.cards import update_card
+        from lingosips.db.models import Card
+
+        card = Card(
+            target_word="test",
+            target_language="es",
+            image_url="/cards/1/image",
+        )
+        session.add(card)
+        await session.commit()
+        await session.refresh(card)
+
+        result = await update_card(card.id, {"image_skipped": False}, session)
+        assert result.image_skipped is False
+        assert result.image_url == "/cards/1/image"

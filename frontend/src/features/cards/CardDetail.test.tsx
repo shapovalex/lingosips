@@ -20,6 +20,7 @@ vi.mock("@/lib/client", () => ({
   get: vi.fn(),
   patch: vi.fn(),
   del: vi.fn(),
+  post: vi.fn(),
   ApiError: class ApiError extends Error {
     status: number
     type: string
@@ -369,6 +370,195 @@ describe("CardDetail", () => {
       expect(
         screen.queryByText(/delete card · this cannot be undone/i)
       ).not.toBeInTheDocument()
+    })
+  })
+
+  // ── Image section tests (Story 2.6) ──────────────────────────────────────
+
+  const MOCK_SERVICE_STATUS_NO_IMAGE = {
+    llm: { provider: "qwen_local", model: null, last_latency_ms: null, last_success_at: null },
+    speech: { provider: "pyttsx3", last_latency_ms: null, last_success_at: null },
+    image: { configured: false },
+  }
+
+  const MOCK_SERVICE_STATUS_WITH_IMAGE = {
+    llm: { provider: "qwen_local", model: null, last_latency_ms: null, last_success_at: null },
+    speech: { provider: "pyttsx3", last_latency_ms: null, last_success_at: null },
+    image: { configured: true },
+  }
+
+  it("shows 'Image endpoint not configured' when image endpoint not set (AC4)", async () => {
+    // Use exact path matching — not path.includes() which is fragile
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_NO_IMAGE)
+      return Promise.resolve(MOCK_CARD)
+    })
+    renderDetail(1)
+    expect(await screen.findByText(/image endpoint not configured/i)).toBeInTheDocument()
+  })
+
+  it("shows 'Add image' button when image endpoint is configured (AC1)", async () => {
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_WITH_IMAGE)
+      return Promise.resolve(MOCK_CARD)
+    })
+    renderDetail(1)
+    expect(await screen.findByRole("button", { name: /add image/i })).toBeInTheDocument()
+  })
+
+  it("shows existing image when card.image_url is set (AC2)", async () => {
+    const cardWithImage = { ...MOCK_CARD, image_url: "/cards/1/image" }
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_WITH_IMAGE)
+      return Promise.resolve(cardWithImage)
+    })
+    renderDetail(1)
+    await screen.findByText("melancólico")
+    const img = document.querySelector("img")
+    expect(img).not.toBeNull()
+    expect(img?.getAttribute("src")).toBe("/cards/1/image")
+  })
+
+  it("shows 'Image skipped · Undo' when card.image_skipped is true (AC5)", async () => {
+    const skippedCard = { ...MOCK_CARD, image_skipped: true }
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_WITH_IMAGE)
+      return Promise.resolve(skippedCard)
+    })
+    renderDetail(1)
+    expect(await screen.findByText(/image skipped/i)).toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: /undo/i })).toBeInTheDocument()
+  })
+
+  it("calls POST /cards/{id}/generate-image when Add image clicked (AC1)", async () => {
+    const { post } = await import("@/lib/client")
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_WITH_IMAGE)
+      return Promise.resolve(MOCK_CARD)
+    })
+    vi.mocked(post as ReturnType<typeof vi.fn>).mockResolvedValue({ ...MOCK_CARD, image_url: "/cards/1/image" })
+    renderDetail(1)
+    const addBtn = await screen.findByRole("button", { name: /add image/i })
+    await userEvent.click(addBtn)
+    await waitFor(() => {
+      expect(vi.mocked(post as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
+        "/cards/1/generate-image",
+        {}
+      )
+    })
+  })
+
+  it("shows 'Generating...' and disables button during image generation (AC1)", async () => {
+    const { post } = await import("@/lib/client")
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_WITH_IMAGE)
+      return Promise.resolve(MOCK_CARD)
+    })
+    // Never-resolving promise to keep in generating state
+    vi.mocked(post as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
+    renderDetail(1)
+    const addBtn = await screen.findByRole("button", { name: /add image/i })
+    await userEvent.click(addBtn)
+    await waitFor(() => {
+      expect(screen.getByText(/generating/i)).toBeInTheDocument()
+    })
+  })
+
+  it("disables Skip image button while generating (prevents concurrent skip+generate race)", async () => {
+    const { post } = await import("@/lib/client")
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_WITH_IMAGE)
+      return Promise.resolve(MOCK_CARD)
+    })
+    vi.mocked(post as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
+    renderDetail(1)
+    const addBtn = await screen.findByRole("button", { name: /add image/i })
+    await userEvent.click(addBtn)
+    await waitFor(() => {
+      const skipBtn = screen.getByRole("button", { name: /skip image/i })
+      expect(skipBtn).toBeDisabled()
+    })
+  })
+
+  it("shows Skip image button when card already has an image_url (AC5 — skip clears existing image)", async () => {
+    const cardWithImage = { ...MOCK_CARD, image_url: "/cards/1/image" }
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_WITH_IMAGE)
+      return Promise.resolve(cardWithImage)
+    })
+    renderDetail(1)
+    await screen.findByText("melancólico")
+    expect(await screen.findByRole("button", { name: /skip image/i })).toBeInTheDocument()
+  })
+
+  it("shows 'Regenerate' button label when card already has an image_url (AC2)", async () => {
+    const cardWithImage = { ...MOCK_CARD, image_url: "/cards/1/image" }
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_WITH_IMAGE)
+      return Promise.resolve(cardWithImage)
+    })
+    renderDetail(1)
+    await screen.findByText("melancólico")
+    expect(await screen.findByRole("button", { name: /regenerate/i })).toBeInTheDocument()
+  })
+
+  it("shows 'not configured' message even when card has an image_url (endpoint removed after generation — AC4)", async () => {
+    const cardWithImage = { ...MOCK_CARD, image_url: "/cards/1/image" }
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_NO_IMAGE)
+      return Promise.resolve(cardWithImage)
+    })
+    renderDetail(1)
+    await screen.findByText("melancólico")
+    expect(await screen.findByText(/image endpoint not configured/i)).toBeInTheDocument()
+  })
+
+  it("calls PATCH with {image_skipped: true} when Skip image clicked (AC5)", async () => {
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_WITH_IMAGE)
+      return Promise.resolve(MOCK_CARD)
+    })
+    vi.mocked(patch).mockResolvedValue({ ...MOCK_CARD, image_skipped: true, image_url: null })
+    renderDetail(1)
+    const skipBtn = await screen.findByRole("button", { name: /skip image/i })
+    await userEvent.click(skipBtn)
+    await waitFor(() => {
+      expect(vi.mocked(patch)).toHaveBeenCalledWith("/cards/1", { image_skipped: true })
+    })
+  })
+
+  it("calls PATCH with {image_skipped: false} when Undo clicked (AC5)", async () => {
+    const skippedCard = { ...MOCK_CARD, image_skipped: true }
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_WITH_IMAGE)
+      return Promise.resolve(skippedCard)
+    })
+    vi.mocked(patch).mockResolvedValue({ ...MOCK_CARD, image_skipped: false })
+    renderDetail(1)
+    const undoBtn = await screen.findByRole("button", { name: /undo/i })
+    await userEvent.click(undoBtn)
+    await waitFor(() => {
+      expect(vi.mocked(patch)).toHaveBeenCalledWith("/cards/1", { image_skipped: false })
+    })
+  })
+
+  it("shows error notification when image generation fails (AC6)", async () => {
+    useAppStore.setState({ pendingNotifications: [] })
+    const { post, ApiError } = await import("@/lib/client")
+    vi.mocked(get).mockImplementation((path: string) => {
+      if (path === "/services/status") return Promise.resolve(MOCK_SERVICE_STATUS_WITH_IMAGE)
+      return Promise.resolve(MOCK_CARD)
+    })
+    vi.mocked(post as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ApiError(422, "/errors/image-generation-failed", "Image generation failed", "Image filtered — please try again")
+    )
+    renderDetail(1)
+    const addBtn = await screen.findByRole("button", { name: /add image/i })
+    await userEvent.click(addBtn)
+    await waitFor(() => {
+      const { pendingNotifications } = useAppStore.getState()
+      expect(pendingNotifications.length).toBeGreaterThan(0)
+      expect(pendingNotifications[pendingNotifications.length - 1].type).toBe("error")
     })
   })
 })

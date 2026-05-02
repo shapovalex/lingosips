@@ -53,14 +53,19 @@ class SpeechServiceStatus(BaseModel):
     last_success_at: str | None = None
 
 
+class ImageServiceStatus(BaseModel):
+    configured: bool  # True when IMAGE_ENDPOINT_URL is set in keyring
+
+
 class ServiceStatusResponse(BaseModel):
     llm: LLMServiceStatus
     speech: SpeechServiceStatus
+    image: ImageServiceStatus
 
 
 @router.get("/status", response_model=ServiceStatusResponse)
 async def get_service_status() -> ServiceStatusResponse:
-    """Return active LLM and speech provider status.
+    """Return active LLM, speech, and image provider status.
 
     Does NOT require DB session — reads from keyring only.
     Always returns 200 — never raises on provider misconfiguration.
@@ -78,6 +83,7 @@ async def get_service_status() -> ServiceStatusResponse:
             last_latency_ms=info.last_speech_latency_ms,
             last_success_at=info.last_speech_success_at,
         ),
+        image=ImageServiceStatus(configured=info.image_endpoint_configured),
     )
 
 
