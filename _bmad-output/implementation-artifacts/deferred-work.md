@@ -83,3 +83,8 @@
 - **"Speech model downloading…" UI string absent** — AC6 requires the frontend to show this string. Frontend integration belongs to Story 4.3 (speak-mode-practice-session), which is backlog. File: frontend/src/features/practice/ (not yet created)
 
 - **2-second SLA not enforced at timeout level** — All timeouts are 10s by design. The 2s target is a goal, not a hard enforcement boundary. Spec comment: `# hard limit; 2s SLA is the goal`. If real-world performance is insufficient, cache the `WhisperModel` instance or move to lazy-init (see whisper_local.py §PerformanceSLA). File: `src/lingosips/services/speech/whisper_local.py:21`
+
+## Deferred from: code review of 4-2-syllablefeedback-component (2026-05-02)
+
+- **Chip key stability on syllable reorder** — `key={\`${s.syllable}-${i}\`}` does not survive list reordering between retries; all chips unmount/remount on reorder, losing animation continuity. Low impact until retry flow (Story 4.3) is implemented. File: `frontend/src/features/practice/SyllableFeedback.tsx`
+- **Tab navigation test brittleness** — "Tab navigates from Try again to Move on" test relies on no other focusable elements existing between the two buttons in DOM order. Will silently break if any future child is inserted between them. File: `frontend/src/features/practice/SyllableFeedback.test.tsx`

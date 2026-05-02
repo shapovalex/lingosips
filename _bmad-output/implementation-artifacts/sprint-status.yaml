@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-04-29
-last_updated: 2026-05-02  # updated by code-review (story 4.1 done)
+last_updated: 2026-05-02  # story 4.2 review complete — done
 project: lingosips
 project_key: NOKEY
 tracking_system: file-system
@@ -78,7 +78,7 @@ development_status:
   # Epic 4: Speak Mode & Pronunciation Mastery
   epic-4: in-progress
   4-1-speech-evaluation-api-whisper-azure-speech: done
-  4-2-syllablefeedback-component: backlog
+  4-2-syllablefeedback-component: done
   4-3-speak-mode-practice-session: backlog
   epic-4-retrospective: optional
 
